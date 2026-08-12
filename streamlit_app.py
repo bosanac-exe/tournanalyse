@@ -18,11 +18,10 @@ def load_u14_rankings():
     if not sheet_names:
       return None, "No sheets found in the ranking file."
 
-    # Assume the sheets are named or can be sorted to find the most recent weekly sheet
-    # Sorting sheet names chronologically or taking the last sheet as the most recent week
+    # Identify the most recent weekly sheet
     latest_sheet = sorted(sheet_names)[-1]
 
-    # Load the latest sheet. Adjust column names below based on your actual Excel file layout
+    # Load the latest sheet
     df_rankings = pd.read_excel(excel_file, sheet_name=latest_sheet)
     return df_rankings, latest_sheet
   except Exception as e:
@@ -171,7 +170,7 @@ if st.button("Retrieve Data", type="primary"):
     st.success("Data retrieval complete!")
     if rankings_df is not None:
       st.info(
-          f"Successfully matched rankings from U14 latest weekly sheet:"
+          f"Successfully loaded rankings from U14 latest weekly sheet:"
           f" **{sheet_info}**"
       )
     else:
@@ -216,26 +215,29 @@ if st.button("Retrieve Data", type="primary"):
         else:
           df = pd.DataFrame(players)
 
-          # Merge rankings if the rankings sheet loaded successfully
+          # Merge rankings using 'Player' (from excel) and 'Player Name' (from scraped table)
           if rankings_df is not None:
-            # Assuming columns in master.xlsx are named 'Player Name' and 'Ranking'.
-            # Adjust these string keys if your excel columns differ (e.g., 'Name', 'Rank')
-            if (
-                "Player Name" in rankings_df.columns
-                and "Ranking" in rankings_df.columns
-            ):
-              df = pd.merge(df, rankings_df, on="Player Name", how="left")
-              df["Ranking"] = df["Ranking"].fillna(
-                  "N/A"
-              )  # Fallback if player not found in weekly list
+            if "Player" in rankings_df.columns and "Rank" in rankings_df.columns:
+              # Merge matching 'Player Name' with Excel's 'Player' column
+              df = pd.merge(
+                  df,
+                  rankings_df[["Player", "Rank"]],
+                  left_on="Player Name",
+                  right_on="Player",
+                  how="left",
+              )
+              # Drop redundant 'Player' column resulting from merge and fill missing ranks
+              if "Player" in df.columns:
+                df = df.drop(columns=["Player"])
+              df["Rank"] = df["Rank"].fillna("N/A")
             else:
-              df["Ranking"] = "Col mismatch"
+              df["Rank"] = "Columns 'Player'/'Rank' missing"
           else:
-            df["Ranking"] = "Unavailable"
+            df["Rank"] = "Unavailable"
 
-          # Reorder columns to look clean: Player Name, Ranking, Registration Status
-          if "Ranking" in df.columns:
-            df = df[["Player Name", "Ranking", "Registration Status"]]
+          # Reorder columns: Player Name, Rank, Registration Status
+          if "Rank" in df.columns:
+            df = df[["Player Name", "Rank", "Registration Status"]]
 
           # Apply Pandas styling for main draw (green) vs reserves (yellow)
           styled_df = df.style.apply(style_player_status, axis=1)
