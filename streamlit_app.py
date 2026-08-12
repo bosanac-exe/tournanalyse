@@ -178,4 +178,13 @@ if st.button("Retrieve Data", type="primary"):
           df = pd.DataFrame(players)
           # Apply Pandas styling for main draw (green) vs reserves (yellow)
           styled_df = df.style.apply(style_player_status, axis=1)
-          st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+          # Calculate dynamic height to render the full table without internal scrollbars (approx 35px per row + header)
+          table_height = (len(df) + 1) * 35 + 10
+
+          st.dataframe(
+              styled_df,
+              use_container_width=True,
+              hide_index=True,
+              height=table_height,
+          )
