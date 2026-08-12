@@ -121,9 +121,22 @@ def scrape_tournament_data(url):
     else:
       data["date"] = "Date not found"
 
-    star_elem = soup.find("span", class_="tag-duo__title")
+    # Extract all tag titles, ignoring "Provincial" and "Rising Stars"
+    tag_elems = soup.find_all(
+        ["span", "li"], class_=re.compile(r"tag|tag-duo__title")
+    )
+    valid_tags = []
+    for tag in tag_elems:
+      text = tag.get_text(strip=True)
+      if text and text.lower() != "get link":
+        text_lower = text.lower()
+        if text_lower != "provincial" and "rising stars" not in text_lower:
+          valid_tags.append(text)
+
     data["star_level"] = (
-        star_elem.get_text(strip=True) if star_elem else "Star level not found"
+        " / ".join(dict.fromkeys(valid_tags))
+        if valid_tags
+        else "Star level not found"
     )
 
     h3_elements = soup.find_all("h3")
