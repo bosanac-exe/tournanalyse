@@ -404,12 +404,15 @@ if st.button("Retrieve Data", type="primary"):
               if "Player" in df.columns:
                 df = df.drop(columns=["Player"])
 
-              # Convert rank to clean whole numbers without decimals where possible
+              # Handle missing rankings gracefully: assign "Not Found" if rank is missing/NaN
+              df["Rank"] = df["Rank"].fillna("Not Found")
+
+              # Convert available rank values to clean whole numbers without decimals
               numeric_ranks = pd.to_numeric(df["Rank"], errors="coerce")
-              df["Rank"] = numeric_ranks.apply(
-                  lambda x: str(int(x)) if pd.notnull(x) else df["Rank"]
-              )
-              df["Rank"] = df["Rank"].fillna("N/A")
+              df["Rank"] = [
+                  str(int(x)) if pd.notnull(x) else val
+                  for x, val in zip(numeric_ranks, df["Rank"])
+              ]
 
               st.caption(
                   f"Matched using {category_label} rankings (Sheet:"
@@ -423,17 +426,20 @@ if st.button("Retrieve Data", type="primary"):
           if "Rank" in df.columns:
             df = df[["Player Name", "Rank", "Registration Status"]]
 
-          # Sort maindraw players by rank on top, others below
+          # Sort maindraw players by rank on top, players with missing ranks safely at the bottom
           df["_is_maindraw"] = (
               df["Registration Status"]
               .astype(str)
               .str.lower()
               .str.contains("maindraw")
           )
-          df["_sort_rank"] = pd.to_numeric(df["Rank"], errors="coerce")
+          # Treat "Not Found" / non-numeric ranks as infinity so they sort last
+          df["_sort_rank"] = pd.to_numeric(df["Rank"], errors="coerce").fillna(
+              float("inf")
+          )
 
           df_maindraw = df[df["_is_maindraw"]].sort_values(
-              by="_sort_rank", ascending=True, na_position="last"
+              by="_sort_rank", ascending=True
           )
           df_others = df[~df["_is_maindraw"]].sort_values(
               by="Registration Status", ascending=True
