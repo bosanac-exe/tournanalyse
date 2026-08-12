@@ -73,6 +73,20 @@ def load_u12_rankings():
     return None, str(e)
 
 
+@st.cache_data(ttl=3600)
+def load_points_table():
+  """Loads the points.xlsx file from the repository root."""
+  points_url = (
+      "https://raw.githubusercontent.com/bosanac-exe/ota-gu14/main/points.xlsx"
+  )
+  try:
+    response = requests.get(points_url, timeout=15)
+    response.raise_for_status()
+    return pd.read_excel(io.BytesIO(response.content)), None
+  except Exception as e:
+    return None, str(e)
+
+
 def scrape_tournament_data(url):
   """Scrapes tournament details and player lists using requests and BeautifulSoup."""
   data = {}
@@ -189,6 +203,7 @@ if st.button("Retrieve Data", type="primary"):
   else:
     u14_df, u14_sheet = load_u14_rankings()
     u12_df, u12_sheet = load_u12_rankings()
+    points_df, points_error = load_points_table()
 
     tournament_results = []
     progress_bar = st.progress(0)
@@ -230,6 +245,70 @@ if st.button("Retrieve Data", type="primary"):
         with col3:
           st.metric("🏆 Age Group", data["age_group"])
 
+        # Points Lookup Calculation
+        winner_points = "N/A"
+        finalist_points = "N/A"
+
+        if points_df is not None and not points_df.empty:
+          players = data.get("players", [])
+          total_players = len(players)
+          age_group_raw = data.get("age_group", "").upper()
+          star_level_raw = data.get("star_level", "").lower()
+
+          # Map age group to points table format (GU12 / GU14)
+          target_age = "GU12" if "12" in age_group_raw else "GU14"
+
+          # Filter points table based on Age Group, Tournament Type, and Draw Size range
+          # Assuming columns in points.xlsx match: Age Group, Draw Size, Tournament type, Finish Position, Points
+          try:
+            # Match age group and tournament type loosely
+            filtered_pts = points_df[
+                points_df.iloc[:, 0]
+                .astype(str)
+                .str.contains(target_age, case=False, na=False)
+            ]
+            if "star" in star_level_raw or "provincial" in star_level_raw:
+              filtered_pts = filtered_pts[
+                  filtered_pts.astype(str)
+                  .apply(
+                      lambda x: x.str.contains(
+                          star_level_raw.replace("star", "").strip(),
+                          case=False,
+                          na=False,
+                      )
+                  )
+                  .any(axis=1)
+              ]
+
+            # Find points for Winner and Finalist
+            win_row = filtered_pts[
+                filtered_pts.iloc[:, 3]
+                .astype(str)
+                .str.contains("winner", case=False, na=False)
+            ]
+            fin_row = filtered_pts[
+                filtered_pts.iloc[:, 3]
+                .astype(str)
+                .str.contains("finalist", case=False, na=False)
+            ]
+
+            if not win_row.empty:
+              winner_points = win_row.iloc[0, -1]
+            if not fin_row.empty:
+              finalist_points = fin_row.iloc[0, -1]
+          except Exception:
+            pass
+        elif points_error:
+          st.warning(f"Could not load points.xlsx: {points_error}")
+
+        # Display Points Potential metrics
+        col4, col5 = st.columns(2)
+        with col4:
+          st.metric("🥇 Winner Points Potential", winner_points)
+        with col5:
+          st.metric("🥈 Finalist Points Potential", finalist_points)
+
+        st.divider()
         st.subheader("Registered Players & Rankings")
 
         players = data.get("players", [])
@@ -287,7 +366,6 @@ if st.button("Retrieve Data", type="primary"):
           )
           df["_sort_rank"] = pd.to_numeric(df["Rank"], errors="coerce")
 
-          # Separate Maindraw from others
           df_maindraw = df[df["_is_maindraw"]].sort_values(
               by="_sort_rank", ascending=True, na_position="last"
           )
@@ -295,7 +373,6 @@ if st.button("Retrieve Data", type="primary"):
               by="Registration Status", ascending=True
           )
 
-          # Combine back with Maindraw first
           df = pd.concat([df_maindraw, df_others]).drop(
               columns=["_is_maindraw", "_sort_rank"]
           )
@@ -303,7 +380,6 @@ if st.button("Retrieve Data", type="primary"):
           styled_df = df.style.apply(style_player_status, axis=1)
           table_height = (len(df) + 1) * 35 + 10
 
-          # Render table with custom widths to keep it compact and fully visible
           st.dataframe(
               styled_df,
               use_container_width=False,
