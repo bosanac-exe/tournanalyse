@@ -75,10 +75,8 @@ def load_u12_rankings():
 
 @st.cache_data(ttl=3600)
 def load_points_table():
-  """Loads the points.xlsx file from the repository root."""
-  points_url = (
-      "https://raw.githubusercontent.com/bosanac-exe/ota-gu14/main/points.xlsx"
-  )
+  """Loads the points.xlsx file from the tournanalyse repository root."""
+  points_url = "https://raw.githubusercontent.com/bosanac-exe/tournanalyse/main/points.xlsx"
   try:
     response = requests.get(points_url, timeout=15)
     response.raise_for_status()
@@ -255,13 +253,9 @@ if st.button("Retrieve Data", type="primary"):
           age_group_raw = data.get("age_group", "").upper()
           star_level_raw = data.get("star_level", "").lower()
 
-          # Map age group to points table format (GU12 / GU14)
           target_age = "GU12" if "12" in age_group_raw else "GU14"
 
-          # Filter points table based on Age Group, Tournament Type, and Draw Size range
-          # Assuming columns in points.xlsx match: Age Group, Draw Size, Tournament type, Finish Position, Points
           try:
-            # Match age group and tournament type loosely
             filtered_pts = points_df[
                 points_df.iloc[:, 0]
                 .astype(str)
@@ -280,7 +274,6 @@ if st.button("Retrieve Data", type="primary"):
                   .any(axis=1)
               ]
 
-            # Find points for Winner and Finalist
             win_row = filtered_pts[
                 filtered_pts.iloc[:, 3]
                 .astype(str)
@@ -301,7 +294,6 @@ if st.button("Retrieve Data", type="primary"):
         elif points_error:
           st.warning(f"Could not load points.xlsx: {points_error}")
 
-        # Display Points Potential metrics
         col4, col5 = st.columns(2)
         with col4:
           st.metric("🥇 Winner Points Potential", winner_points)
@@ -357,7 +349,6 @@ if st.button("Retrieve Data", type="primary"):
           if "Rank" in df.columns:
             df = df[["Player Name", "Rank", "Registration Status"]]
 
-          # Sort maindraw players by rank, while keeping maindraw on top and other statuses below
           df["_is_maindraw"] = (
               df["Registration Status"]
               .astype(str)
