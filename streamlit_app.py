@@ -4,6 +4,31 @@ import requests
 import streamlit as st
 
 
+@st.cache_data(ttl=3600)
+def load_u14_rankings():
+  """Fetches and processes the U14 master ranking excel file from GitHub."""
+  excel_url = (
+      "https://raw.githubusercontent.com/bosanac-exe/ota-gu14/main/master.xlsx"
+  )
+  try:
+    # Read all sheets from the Excel file
+    excel_file = pd.ExcelFile(excel_url)
+    sheet_names = excel_file.sheet_names
+
+    if not sheet_names:
+      return None, "No sheets found in the ranking file."
+
+    # Assume the sheets are named or can be sorted to find the most recent weekly sheet
+    # Sorting sheet names chronologically or taking the last sheet as the most recent week
+    latest_sheet = sorted(sheet_names)[-1]
+
+    # Load the latest sheet. Adjust column names below based on your actual Excel file layout
+    df_rankings = pd.read_excel(excel_file, sheet_name=latest_sheet)
+    return df_rankings, latest_sheet
+  except Exception as e:
+    return None, str(e)
+
+
 def scrape_tournament_data(url):
   """Scrapes tournament details and player lists using requests and BeautifulSoup."""
   data = {}
@@ -125,6 +150,9 @@ if st.button("Retrieve Data", type="primary"):
   elif len(urls) > 10:
     st.error("Please limit your input to a maximum of 10 URLs.")
   else:
+    # Load U14 Rankings beforehand
+    rankings_df, sheet_info = load_u14_rankings()
+
     tournament_results = []
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -141,6 +169,17 @@ if st.button("Retrieve Data", type="primary"):
     progress_bar.empty()
 
     st.success("Data retrieval complete!")
+    if rankings_df is not None:
+      st.info(
+          f"Successfully matched rankings from U14 latest weekly sheet:"
+          f" **{sheet_info}**"
+      )
+    else:
+      st.warning(
+          f"Could not load U14 ranking file: {sheet_info}. Displaying players"
+          " without rankings."
+      )
+
     st.divider()
 
     # --- Display Results in Tabs ---
@@ -166,7 +205,7 @@ if st.button("Retrieve Data", type="primary"):
         with col3:
           st.metric("🏆 Age Group", data["age_group"])
 
-        st.subheader("Registered Players")
+        st.subheader("Registered Players & Rankings")
 
         players = data.get("players", [])
         if not players:
@@ -176,10 +215,31 @@ if st.button("Retrieve Data", type="primary"):
           )
         else:
           df = pd.DataFrame(players)
+
+          # Merge rankings if the rankings sheet loaded successfully
+          if rankings_df is not None:
+            # Assuming columns in master.xlsx are named 'Player Name' and 'Ranking'.
+            # Adjust these string keys if your excel columns differ (e.g., 'Name', 'Rank')
+            if (
+                "Player Name" in rankings_df.columns
+                and "Ranking" in rankings_df.columns
+            ):
+              df = pd.merge(df, rankings_df, on="Player Name", how="left")
+              df["Ranking"] = df["Ranking"].fillna(
+                  "N/A"
+              )  # Fallback if player not found in weekly list
+            else:
+              df["Ranking"] = "Col mismatch"
+          else:
+            df["Ranking"] = "Unavailable"
+
+          # Reorder columns to look clean: Player Name, Ranking, Registration Status
+          if "Ranking" in df.columns:
+            df = df[["Player Name", "Ranking", "Registration Status"]]
+
           # Apply Pandas styling for main draw (green) vs reserves (yellow)
           styled_df = df.style.apply(style_player_status, axis=1)
 
-          # Calculate dynamic height to render the full table without internal scrollbars (approx 35px per row + header)
           table_height = (len(df) + 1) * 35 + 10
 
           st.dataframe(
