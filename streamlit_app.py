@@ -281,21 +281,10 @@ if st.button("Retrieve Data", type="primary"):
           styled_df = df.style.apply(style_player_status, axis=1)
           table_height = (len(df) + 1) * 35 + 10
 
-          # Use a narrower container layout column so the table shrinks to content size
-          table_col, _ = st.columns([1, 2])
-          with table_col:
-            st.dataframe(
-                styled_df,
-                use_container_width=False,
-                hide_index=True,
-                height=table_height,
-                column_config={
-                    "Player Name": st.column_config.TextColumn(
-                        "Player Name", width="small"
-                    ),
-                    "Rank": st.column_config.TextColumn("Rank", width="small"),
-                    "Registration Status": st.column_config.TextColumn(
-                        "Registration Status", width="small"
-                    ),
-                },
-            )
+          # Render table with standard layout width to prevent text clipping
+          st.dataframe(
+              styled_df,
+              use_container_width=True,
+              hide_index=True,
+              height=table_height,
+          )
