@@ -403,7 +403,14 @@ if st.button("Retrieve Data", type="primary"):
               )
               if "Player" in df.columns:
                 df = df.drop(columns=["Player"])
+
+              # Convert rank to clean whole numbers without decimals where possible
+              numeric_ranks = pd.to_numeric(df["Rank"], errors="coerce")
+              df["Rank"] = numeric_ranks.apply(
+                  lambda x: str(int(x)) if pd.notnull(x) else df["Rank"]
+              )
               df["Rank"] = df["Rank"].fillna("N/A")
+
               st.caption(
                   f"Matched using {category_label} rankings (Sheet:"
                   f" {sheet_name})"
