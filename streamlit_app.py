@@ -1,4 +1,5 @@
 from bs4 import BeautifulSoup
+import io
 import pandas as pd
 import requests
 import streamlit as st
@@ -6,22 +7,45 @@ import streamlit as st
 
 @st.cache_data(ttl=3600)
 def load_u14_rankings():
-  """Fetches and processes the U14 master ranking excel file from GitHub."""
+  """Fetches the public U14 master ranking excel file from GitHub."""
   excel_url = (
       "https://raw.githubusercontent.com/bosanac-exe/ota-gu14/main/master.xlsx"
   )
   try:
-    # Read all sheets from the Excel file
     excel_file = pd.ExcelFile(excel_url)
     sheet_names = excel_file.sheet_names
-
     if not sheet_names:
-      return None, "No sheets found in the ranking file."
-
-    # Identify the most recent weekly sheet
+      return None, "No sheets found in U14 file."
     latest_sheet = sorted(sheet_names)[-1]
+    df_rankings = pd.read_excel(excel_file, sheet_name=latest_sheet)
+    return df_rankings, latest_sheet
+  except Exception as e:
+    return None, str(e)
 
-    # Load the latest sheet
+
+@st.cache_data(ttl=3600)
+def load_u12_rankings():
+  """Fetches the private U12 master ranking excel file from GitHub using a PAT."""
+  api_url = (
+      "https://raw.githubusercontent.com/bosanac-exe/rankdataparse/main/master.xlsx"
+  )
+
+  # Retrieve token securely from Streamlit secrets
+  token = st.secrets.get("GITHUB_PAT", "")
+  headers = {}
+  if token:
+    headers["Authorization"] = f"token {token}"
+
+  try:
+    response = requests.get(api_url, headers=headers, timeout=15)
+    response.raise_for_status()
+
+    # Read excel file from binary content bytes
+    excel_file = pd.ExcelFile(io.BytesIO(response.content))
+    sheet_names = excel_file.sheet_names
+    if not sheet_names:
+      return None, "No sheets found in U12 file."
+    latest_sheet = sorted(sheet_names)[-1]
     df_rankings = pd.read_excel(excel_file, sheet_name=latest_sheet)
     return df_rankings, latest_sheet
   except Exception as e:
@@ -149,8 +173,9 @@ if st.button("Retrieve Data", type="primary"):
   elif len(urls) > 10:
     st.error("Please limit your input to a maximum of 10 URLs.")
   else:
-    # Load U14 Rankings beforehand
-    rankings_df, sheet_info = load_u14_rankings()
+    # Pre-load rankings sources
+    u14_df, u14_sheet = load_u14_rankings()
+    u12_df, u12_sheet = load_u12_rankings()
 
     tournament_results = []
     progress_bar = st.progress(0)
@@ -168,17 +193,6 @@ if st.button("Retrieve Data", type="primary"):
     progress_bar.empty()
 
     st.success("Data retrieval complete!")
-    if rankings_df is not None:
-      st.info(
-          f"Successfully loaded rankings from U14 latest weekly sheet:"
-          f" **{sheet_info}**"
-      )
-    else:
-      st.warning(
-          f"Could not load U14 ranking file: {sheet_info}. Displaying players"
-          " without rankings."
-      )
-
     st.divider()
 
     # --- Display Results in Tabs ---
@@ -214,34 +228,47 @@ if st.button("Retrieve Data", type="primary"):
           )
         else:
           df = pd.DataFrame(players)
+          age_group = data.get("age_group", "").upper()
 
-          # Merge rankings using 'Player' (from excel) and 'Player Name' (from scraped table)
-          if rankings_df is not None:
-            if "Player" in rankings_df.columns and "Rank" in rankings_df.columns:
-              # Merge matching 'Player Name' with Excel's 'Player' column
+          # Determine whether to use U12 or U14 rankings based on age group text
+          if "12" in age_group:
+            active_rankings = u12_df
+            sheet_name = u12_sheet
+            category_label = "U12"
+          else:
+            active_rankings = u14_df
+            sheet_name = u14_sheet
+            category_label = "U14"
+
+          # Merge ranking data
+          if active_rankings is not None:
+            if (
+                "Player" in active_rankings.columns
+                and "Rank" in active_rankings.columns
+            ):
               df = pd.merge(
                   df,
-                  rankings_df[["Player", "Rank"]],
+                  active_rankings[["Player", "Rank"]],
                   left_on="Player Name",
                   right_on="Player",
                   how="left",
               )
-              # Drop redundant 'Player' column resulting from merge and fill missing ranks
               if "Player" in df.columns:
                 df = df.drop(columns=["Player"])
               df["Rank"] = df["Rank"].fillna("N/A")
+              st.caption(
+                  f"Matched using {category_label} rankings (Sheet:"
+                  f" {sheet_name})"
+              )
             else:
-              df["Rank"] = "Columns 'Player'/'Rank' missing"
+              df["Rank"] = "Columns missing"
           else:
             df["Rank"] = "Unavailable"
 
-          # Reorder columns: Player Name, Rank, Registration Status
           if "Rank" in df.columns:
             df = df[["Player Name", "Rank", "Registration Status"]]
 
-          # Apply Pandas styling for main draw (green) vs reserves (yellow)
           styled_df = df.style.apply(style_player_status, axis=1)
-
           table_height = (len(df) + 1) * 35 + 10
 
           st.dataframe(
