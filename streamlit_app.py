@@ -278,10 +278,17 @@ if st.button("Retrieve Data", type="primary"):
           if "Rank" in df.columns:
             df = df[["Player Name", "Rank", "Registration Status"]]
 
+          # Sort by numeric Rank (putting N/A or non-numeric values at the bottom)
+          df["_sort_rank"] = pd.to_numeric(df["Rank"], errors="coerce")
+          df = df.sort_values(
+              by="_sort_rank", ascending=True, na_position="last"
+          )
+          df = df.drop(columns=["_sort_rank"])
+
           styled_df = df.style.apply(style_player_status, axis=1)
           table_height = (len(df) + 1) * 35 + 10
 
-          # Render table with explicit column pixel sizes to prevent full-width stretch & text clipping
+          # Render table with custom widths to keep it compact and fully visible
           st.dataframe(
               styled_df,
               use_container_width=False,
