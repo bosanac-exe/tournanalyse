@@ -1,4 +1,5 @@
 from bs4 import BeautifulSoup
+import pandas as pd
 import requests
 import streamlit as st
 
@@ -20,7 +21,7 @@ def scrape_tournament_data(url):
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # 1. Extract Tournament Title (Checks h2 with media__title or span with nav-link__value)
+    # 1. Extract Tournament Title
     title_elem = soup.find("h2", class_="media__title")
     if title_elem and title_elem.has_attr("title"):
       data["title"] = title_elem["title"]
@@ -47,14 +48,14 @@ def scrape_tournament_data(url):
         star_elem.get_text(strip=True) if star_elem else "Star level not found"
     )
 
-    # 4. Extract Age Group (Find all h3 elements, skip utility texts like 'Get link', and pick the correct one)
+    # 4. Extract Age Group
     h3_elements = soup.find_all("h3")
     age_group_text = "Age group not found"
     for h3 in h3_elements:
       text = h3.get_text(strip=True)
       if text and text.lower() != "get link":
         age_group_text = text
-        break  # Typically the target tournament event category comes up right after utility headers
+        break
     data["age_group"] = age_group_text
 
     # 5. Extract Registered Players Table
@@ -72,7 +73,9 @@ def scrape_tournament_data(url):
         )
 
         if status and player_name and "player.aspx" in str(cols[1]):
-          players.append({"name": player_name, "status": status})
+          players.append(
+              {"Player Name": player_name, "Registration Status": status}
+          )
 
     data["players"] = players
 
@@ -80,6 +83,17 @@ def scrape_tournament_data(url):
     data["error"] = str(e)
 
   return data
+
+
+# --- Styling function for Pandas DataFrame ---
+def style_player_status(row):
+  """Applies background colors based on registration status."""
+  status = str(row["Registration Status"]).lower()
+  if "maindraw" in status:
+    return ["background-color: #d4edda; color: #155724"] * len(row)
+  elif "reserve" in status:
+    return ["background-color: #fff3cd; color: #856404"] * len(row)
+  return [""] * len(row)
 
 
 # --- Streamlit UI Setup ---
@@ -161,37 +175,7 @@ if st.button("Retrieve Data", type="primary"):
               " URL format."
           )
         else:
-          for p in players:
-            status_lower = p["status"].lower()
-            if "maindraw" in status_lower:
-              badge_color = "#d4edda"
-              text_color = "#155724"
-              border_color = "#c3e6cb"
-            elif "reserve" in status_lower:
-              badge_color = "#fff3cd"
-              text_color = "#856404"
-              border_color = "#ffeeba"
-            else:
-              badge_color = "#e2e3e5"
-              text_color = "#383d41"
-              border_color = "#d6d8db"
-
-            st.markdown(
-                f"""
-                        <div style="
-                            padding: 8px 12px; 
-                            margin-bottom: 6px; 
-                            border-radius: 6px; 
-                            background-color: {badge_color}; 
-                            color: {text_color}; 
-                            border: 1px solid {border_color};
-                            display: flex; 
-                            justify-content: space-between;
-                            align-items: center;
-                        ">
-                            <strong>{p['name']}</strong>
-                            <span style="font-size: 0.85em; font-weight: bold; text-transform: uppercase;">{p['status']}</span>
-                        </div>
-                        """,
-                unsafe_allow_html=True,
-            )
+          df = pd.DataFrame(players)
+          # Apply Pandas styling for main draw (green) vs reserves (yellow)
+          styled_df = df.style.apply(style_player_status, axis=1)
+          st.dataframe(styled_df, use_container_width=True, hide_index=True)
