@@ -76,7 +76,9 @@ def load_u12_rankings():
 @st.cache_data(ttl=3600)
 def load_points_table():
   """Loads the points.xlsx file from the tournanalyse repository root."""
-  points_url = "https://raw.githubusercontent.com/bosanac-exe/tournanalyse/main/points.xlsx"
+  points_url = (
+      "https://raw.githubusercontent.com/bosanac-exe/tournanalyse/main/points.xlsx"
+  )
   try:
     response = requests.get(points_url, timeout=15)
     response.raise_for_status()
@@ -343,6 +345,22 @@ if st.button("Retrieve Data", type="primary"):
         elif points_error:
           st.warning(f"Could not load points.xlsx: {points_error}")
 
+        # Center metric values below their labels using custom CSS
+        st.markdown(
+            """
+            <style>
+            [data-testid="stMetricValue"] {
+                text-align: center;
+            }
+            [data-testid="stMetricLabel"] {
+                display: flex;
+                justify-content: center;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
         col4, col5 = st.columns(2)
         with col4:
           st.metric("🥇 Winner Points Potential", winner_points)
@@ -398,6 +416,7 @@ if st.button("Retrieve Data", type="primary"):
           if "Rank" in df.columns:
             df = df[["Player Name", "Rank", "Registration Status"]]
 
+          # Sort maindraw players by rank on top, others below
           df["_is_maindraw"] = (
               df["Registration Status"]
               .astype(str)
