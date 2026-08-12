@@ -281,10 +281,19 @@ if st.button("Retrieve Data", type="primary"):
           styled_df = df.style.apply(style_player_status, axis=1)
           table_height = (len(df) + 1) * 35 + 10
 
-          # Render table with standard layout width to prevent text clipping
+          # Render table with explicit column pixel sizes to prevent full-width stretch & text clipping
           st.dataframe(
               styled_df,
-              use_container_width=True,
+              use_container_width=False,
               hide_index=True,
               height=table_height,
+              column_config={
+                  "Player Name": st.column_config.TextColumn(
+                      "Player Name", width=220
+                  ),
+                  "Rank": st.column_config.TextColumn("Rank", width=80),
+                  "Registration Status": st.column_config.TextColumn(
+                      "Registration Status", width=180
+                  ),
+              },
           )
