@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 import io
 import pandas as pd
+import re
 import requests
 import streamlit as st
 
@@ -25,7 +26,10 @@ def load_u14_rankings():
 
 @st.cache_data(ttl=3600)
 def load_u12_rankings():
-  """Fetches the private U12 master ranking excel file from GitHub using a PAT."""
+  """Fetches the private U12 master ranking excel file from GitHub using a PAT,
+
+  ignoring 'trends' sheets and matching weekly formats like 'Week NN-YYYY'.
+  """
   api_url = (
       "https://raw.githubusercontent.com/bosanac-exe/rankdataparse/main/master.xlsx"
   )
@@ -40,14 +44,34 @@ def load_u12_rankings():
     response = requests.get(api_url, headers=headers, timeout=15)
     response.raise_for_status()
 
-    # Read excel file from binary content bytes
     excel_file = pd.ExcelFile(io.BytesIO(response.content))
     sheet_names = excel_file.sheet_names
+
     if not sheet_names:
       return None, "No sheets found in U12 file."
-    latest_sheet = sorted(sheet_names)[-1]
-    df_rankings = pd.read_excel(excel_file, sheet_name=latest_sheet)
-    return df_rankings, latest_sheet
+
+    # Filter out sheets named 'trends' (case-insensitive) and match 'Week NN-YYYY' format
+    valid_sheets = []
+    pattern = re.compile(r"^week\s*(\d+)-(\d{4})$", re.IGNORECASE)
+
+    for sheet in sheet_names:
+      if sheet.strip().lower() == "trends":
+        continue
+      match = pattern.match(sheet.strip())
+      if match:
+        week_num = int(match.group(1))
+        year = int(match.group(2))
+        valid_sheets.append((year, week_num, sheet))
+
+    if not valid_sheets:
+      return None, "No valid weekly sheets (Week NN-YYYY) found."
+
+    # Sort by year first, then by week number to find the most recent one
+    valid_sheets.sort(key=lambda x: (x[0], x[1]))
+    latest_sheet_name = valid_sheets[-1][2]
+
+    df_rankings = pd.read_excel(excel_file, sheet_name=latest_sheet_name)
+    return df_rankings, latest_sheet_name
   except Exception as e:
     return None, str(e)
 
