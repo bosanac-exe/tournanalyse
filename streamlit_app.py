@@ -34,7 +34,6 @@ def load_u12_rankings():
       "https://raw.githubusercontent.com/bosanac-exe/rankdataparse/main/master.xlsx"
   )
 
-  # Retrieve token securely from Streamlit secrets
   token = st.secrets.get("GITHUB_PAT", "")
   headers = {}
   if token:
@@ -50,7 +49,6 @@ def load_u12_rankings():
     if not sheet_names:
       return None, "No sheets found in U12 file."
 
-    # Filter out sheets named 'trends' (case-insensitive) and match 'Week NN-YYYY' format
     valid_sheets = []
     pattern = re.compile(r"^week\s*(\d+)-(\d{4})$", re.IGNORECASE)
 
@@ -66,7 +64,6 @@ def load_u12_rankings():
     if not valid_sheets:
       return None, "No valid weekly sheets (Week NN-YYYY) found."
 
-    # Sort by year first, then by week number to find the most recent one
     valid_sheets.sort(key=lambda x: (x[0], x[1]))
     latest_sheet_name = valid_sheets[-1][2]
 
@@ -93,7 +90,6 @@ def scrape_tournament_data(url):
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # 1. Extract Tournament Title
     title_elem = soup.find("h2", class_="media__title")
     if title_elem and title_elem.has_attr("title"):
       data["title"] = title_elem["title"]
@@ -105,7 +101,6 @@ def scrape_tournament_data(url):
           else "Unknown Tournament"
       )
 
-    # 2. Extract Tournament Dates
     time_elems = soup.find_all("time")
     if len(time_elems) >= 2:
       start_date = time_elems[0].get_text(strip=True)
@@ -114,13 +109,11 @@ def scrape_tournament_data(url):
     else:
       data["date"] = "Date not found"
 
-    # 3. Extract Star Level
     star_elem = soup.find("span", class_="tag-duo__title")
     data["star_level"] = (
         star_elem.get_text(strip=True) if star_elem else "Star level not found"
     )
 
-    # 4. Extract Age Group
     h3_elements = soup.find_all("h3")
     age_group_text = "Age group not found"
     for h3 in h3_elements:
@@ -130,7 +123,6 @@ def scrape_tournament_data(url):
         break
     data["age_group"] = age_group_text
 
-    # 5. Extract Registered Players Table
     players = []
     rows = soup.select("tbody tr") or soup.find_all("tr")
     for row in rows:
@@ -157,7 +149,6 @@ def scrape_tournament_data(url):
   return data
 
 
-# --- Styling function for Pandas DataFrame ---
 def style_player_status(row):
   """Applies background colors based on registration status."""
   status = str(row["Registration Status"]).lower()
@@ -168,7 +159,6 @@ def style_player_status(row):
   return [""] * len(row)
 
 
-# --- Streamlit UI Setup ---
 st.set_page_config(
     page_title="Tournament Draw Scraper", page_icon="🎾", layout="wide"
 )
@@ -197,7 +187,6 @@ if st.button("Retrieve Data", type="primary"):
   elif len(urls) > 10:
     st.error("Please limit your input to a maximum of 10 URLs.")
   else:
-    # Pre-load rankings sources
     u14_df, u14_sheet = load_u14_rankings()
     u12_df, u12_sheet = load_u12_rankings()
 
@@ -219,7 +208,6 @@ if st.button("Retrieve Data", type="primary"):
     st.success("Data retrieval complete!")
     st.divider()
 
-    # --- Display Results in Tabs ---
     tab_titles = [
         res.get("title", f"Tournament {i+1}")[:25]
         for _, res in tournament_results
@@ -254,7 +242,6 @@ if st.button("Retrieve Data", type="primary"):
           df = pd.DataFrame(players)
           age_group = data.get("age_group", "").upper()
 
-          # Determine whether to use U12 or U14 rankings based on age group text
           if "12" in age_group:
             active_rankings = u12_df
             sheet_name = u12_sheet
@@ -264,7 +251,6 @@ if st.button("Retrieve Data", type="primary"):
             sheet_name = u14_sheet
             category_label = "U14"
 
-          # Merge ranking data
           if active_rankings is not None:
             if (
                 "Player" in active_rankings.columns
@@ -295,9 +281,19 @@ if st.button("Retrieve Data", type="primary"):
           styled_df = df.style.apply(style_player_status, axis=1)
           table_height = (len(df) + 1) * 35 + 10
 
+          # Auto-resize column widths dynamically based on content length
           st.dataframe(
               styled_df,
               use_container_width=True,
               hide_index=True,
               height=table_height,
+              column_config={
+                  "Player Name": st.column_config.TextColumn(
+                      "Player Name", width="auto"
+                  ),
+                  "Rank": st.column_config.TextColumn("Rank", width="auto"),
+                  "Registration Status": st.column_config.TextColumn(
+                      "Registration Status", width="auto"
+                  ),
+              },
           )
