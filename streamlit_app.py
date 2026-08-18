@@ -267,7 +267,7 @@ if st.button("Retrieve Data", type="primary"):
     ]
     tabs = st.tabs(tab_titles)
 
-    for tab, (url, data) in zip(tabs, tournament_results):
+    for i, (tab, (url, data)) in enumerate(zip(tabs, tournament_results)):
       with tab:
         if "error" in data:
           st.error(f"Failed to retrieve data from URL: {url}")
@@ -488,7 +488,7 @@ if st.button("Retrieve Data", type="primary"):
               },
           )
 
-        # Google Gemini API Strategic Advisor Button & Integration
+        # Google Gemini API Strategic Advisor Button & Integration (with unique compound key)
         st.markdown("### 🤖 AI Withdrawal & Tournament Strategy Advisor")
         st.markdown(
             "Get expert statistical and tennis analysis powered by **Google"
@@ -496,16 +496,18 @@ if st.button("Retrieve Data", type="primary"):
             " Policy compliance, and ranking point optimization."
         )
 
+        safe_url_key = re.sub(r"[^a-zA-Z0-9]", "_", url)
+        button_key = f"gemini_btn_{i}_{safe_url_key}"
+
         if st.button(
             f"Generate Gemini Recommendation for {data.get('title', 'Tournament')}",
-            key=f"gemini_btn_{i}",
+            key=button_key,
         ):
           with st.spinner(
               "Consulting Google Gemini with tournament context, historical"
               " patterns, and policy guidelines..."
           ):
             try:
-              # Load supporting context files safely
               policy_text = ""
               try:
                 with open("multientrypol.txt", "r", encoding="utf-8") as f:
@@ -544,7 +546,6 @@ if st.button("Retrieve Data", type="primary"):
               except Exception:
                 players_summary = "Player statistics summary unavailable."
 
-              # Configure Gemini API key from Streamlit secrets
               gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
               if not gemini_api_key:
                 st.error(
