@@ -1,4 +1,5 @@
 from bs4 import BeautifulSoup
+import google.generativeai as genai
 import io
 import pandas as pd
 import re
@@ -148,7 +149,6 @@ def scrape_tournament_data(url):
     else:
       data["date"] = "Date not found"
 
-    # Extract all tag titles, ignoring "Provincial" and "Rising Stars"
     tag_elems = soup.find_all(
         ["span", "li"], class_=re.compile(r"tag|tag-duo__title")
     )
@@ -370,7 +370,6 @@ if st.button("Retrieve Data", type="primary"):
         elif points_error:
           st.warning(f"Could not load points.xlsx: {points_error}")
 
-        # Center metric values below their labels using custom CSS
         st.markdown(
             """
             <style>
@@ -429,10 +428,8 @@ if st.button("Retrieve Data", type="primary"):
               if "Player" in df.columns:
                 df = df.drop(columns=["Player"])
 
-              # Handle missing rankings gracefully: assign "Not Found" if rank is missing/NaN
               df["Rank"] = df["Rank"].fillna("Not Found")
 
-              # Convert available rank values to clean whole numbers without decimals
               numeric_ranks = pd.to_numeric(df["Rank"], errors="coerce")
               df["Rank"] = [
                   str(int(x)) if pd.notnull(x) else val
@@ -451,14 +448,12 @@ if st.button("Retrieve Data", type="primary"):
           if "Rank" in df.columns:
             df = df[["Player Name", "Rank", "Registration Status"]]
 
-          # Sort maindraw players by rank on top, players with missing ranks safely at the bottom
           df["_is_maindraw"] = (
               df["Registration Status"]
               .astype(str)
               .str.lower()
               .str.contains("maindraw")
           )
-          # Treat "Not Found" / non-numeric ranks as infinity so they sort last
           df["_sort_rank"] = pd.to_numeric(df["Rank"], errors="coerce").fillna(
               float("inf")
           )
@@ -492,3 +487,113 @@ if st.button("Retrieve Data", type="primary"):
                   ),
               },
           )
+
+        # Google Gemini API Strategic Advisor Button & Integration
+        st.markdown("### 🤖 AI Withdrawal & Tournament Strategy Advisor")
+        st.markdown(
+            "Get expert statistical and tennis analysis powered by **Google"
+            " Gemini** regarding your tournament entries, OTA Multiple Entries"
+            " Policy compliance, and ranking point optimization."
+        )
+
+        if st.button(
+            f"Generate Gemini Recommendation for {data.get('title', 'Tournament')}",
+            key=f"gemini_btn_{i}",
+        ):
+          with st.spinner(
+              "Consulting Google Gemini with tournament context, historical"
+              " patterns, and policy guidelines..."
+          ):
+            try:
+              # Load supporting context files safely
+              policy_text = ""
+              try:
+                with open("multientrypol.txt", "r", encoding="utf-8") as f:
+                  policy_text = f.read()
+              except Exception:
+                policy_text = "Policy text could not be loaded."
+
+              ela_df_context = ""
+              try:
+                ela_df = pd.read_excel("Ela.xlsx")
+                ela_df_context = ela_df.to_string()
+              except Exception:
+                ela_df_context = "Ela points data unavailable."
+
+              tourn_summary = ""
+              try:
+                tourn_xls = pd.ExcelFile("tourn.xlsx")
+                for s_name in tourn_xls.sheet_names:
+                  s_df = pd.read_excel(tourn_xls, s_name)
+                  tourn_summary += (
+                      f"\nSheet {s_name}:\n"
+                      f"{s_df['Post-registration status'].value_counts().to_string()}\n"
+                  )
+              except Exception:
+                tourn_summary = "Historical tournament patterns unavailable."
+
+              players_summary = ""
+              try:
+                p_xls = pd.ExcelFile("players.xlsx")
+                for s_name in p_xls.sheet_names:
+                  p_df = pd.read_excel(p_xls, s_name)
+                  players_summary += (
+                      f"\nPlayers sheet {s_name} sample:\n"
+                      f"{p_df[['Player', 'Rank', 'Points']].head(5).to_string()}\n"
+                  )
+              except Exception:
+                players_summary = "Player statistics summary unavailable."
+
+              # Configure Gemini API key from Streamlit secrets
+              gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
+              if not gemini_api_key:
+                st.error(
+                    "GEMINI_API_KEY is missing from Streamlit secrets."
+                    " Configure it in secrets.toml."
+                )
+              else:
+                genai.configure(api_key=gemini_api_key)
+                model = genai.GenerativeModel("gemini-2.5-flash")
+
+                prompt = f"""
+                            You are an expert AI sports analyst with advanced skills in statistical analysis and competitive tennis strategy. 
+                            Your task is to advise junior tennis player Ela Velic on which tournaments to withdraw from versus which one(s) to stay registered for before the withdrawal deadline, assuming today is the last day of the withdrawal deadline.
+
+                            CONTEXT & INPUT DATA:
+                            1. OTA Multiple Entries Policy (`multientrypol.txt`):
+                            {policy_text}
+
+                            2. Ela's Points & Ranking History (`Ela.xlsx` - Junior rankings are based on the best 5 tournaments over 52 weeks):
+                            {ela_df_context}
+
+                            3. Historical Concurrent Tournament Drop/Participation Patterns (`tourn.xlsx`):
+                            {tourn_summary}
+
+                            4. Scraped Field Data & Competitor Statistics for Current Week (`players.xlsx` & current tournament view):
+                            Tournament Title: {data.get('title')}
+                            Star Level: {data.get('star_level')}
+                            Age Group: {data.get('age_group')}
+                            Dates: {data.get('date')}
+                            Winner Points Potential: {winner_points}
+                            Finalist Points Potential: {finalist_points}
+                            Registered Players & Field:
+                            {df.to_string() if 'df' in locals() else 'N/A'}
+                            
+                            {players_summary}
+
+                            OBJECTIVE:
+                            Provide a structured, rigorous recommendation and detailed analysis on whether Ela should stay in or withdraw from this tournament. 
+                            - Analyze conflict implications under OTA Multiple Entries Policy.
+                            - Evaluate field strength (rankings, WTN, win-loss records of competitors).
+                            - Calculate whether winning or reaching the finalist stage will exceed Ela's current 5th-best score to replace it and boost her ranking total.
+                            - Give clear, actionable instructions.
+                            """
+
+                response = model.generate_content(prompt)
+                st.markdown("### 📋 Gemini Expert Recommendation")
+                st.write(response.text)
+
+            except Exception as api_err:
+              st.error(
+                  f"Failed to generate Gemini response: {str(api_err)}"
+              )
