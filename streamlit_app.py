@@ -252,6 +252,147 @@ if st.button("Retrieve Data", type="primary"):
           f"Scraping tournament {i+1} of {len(urls)}... Please wait."
       )
       result = scrape_tournament_data(url)
+
+      # Calculate points and enrich player dataframe immediately for context storage
+      winner_points = "N/A"
+      finalist_points = "N/A"
+      players = result.get("players", [])
+
+      if points_df is not None and not points_df.empty and players:
+        total_players = len(players)
+        age_group_raw = result.get("age_group", "").upper()
+        star_level_raw = result.get("star_level", "").lower()
+        target_age = "12" if "12" in age_group_raw else "14"
+
+        try:
+          df_pts = points_df.copy()
+          df_pts["Age_Str"] = df_pts.iloc[:, 0].astype(str)
+          df_pts["Draw_Str"] = df_pts.iloc[:, 1].astype(str)
+          df_pts["Type_Str"] = df_pts.iloc[:, 2].astype(str)
+          df_pts["Finish_Str"] = df_pts.iloc[:, 3].astype(str)
+
+          filtered_pts = df_pts[
+              df_pts["Age_Str"].str.contains(target_age, case=False, na=False)
+          ]
+
+          if "rising" in star_level_raw:
+            filtered_pts = filtered_pts[
+                filtered_pts["Type_Str"].str.contains(
+                    "rising", case=False, na=False
+                )
+            ]
+          elif "provincial" in star_level_raw:
+            filtered_pts = filtered_pts[
+                filtered_pts["Type_Str"].str.contains(
+                    "provincial", case=False, na=False
+                )
+            ]
+          else:
+            star_match = re.search(r"(\d+)", star_level_raw)
+            if star_match:
+              star_num = star_match.group(1)
+              filtered_pts = filtered_pts[
+                  filtered_pts["Type_Str"].str.contains(
+                      star_num, case=False, na=False
+                  )
+              ]
+
+          def match_draw_size(draw_text, count):
+            draw_text_lower = draw_text.lower()
+            if "or more" in draw_text_lower:
+              num_match = re.search(r"(\d+)", draw_text_lower)
+              if num_match and count >= int(num_match.group(1)):
+                return True
+            else:
+              numbers = [int(n) for n in re.findall(r"\d+", draw_text_lower)]
+              if len(numbers) == 1:
+                if count == numbers[0]:
+                  return True
+              elif len(numbers) >= 2:
+                if numbers[0] <= count <= numbers[1]:
+                  return True
+            return False
+
+          filtered_pts = filtered_pts[
+              filtered_pts["Draw_Str"].apply(
+                  lambda x: match_draw_size(x, total_players)
+              )
+          ]
+
+          win_row = filtered_pts[
+              filtered_pts["Finish_Str"].str.contains(
+                  "winner", case=False, na=False
+              )
+          ]
+          fin_row = filtered_pts[
+              filtered_pts["Finish_Str"].str.contains(
+                  "finalist", case=False, na=False
+              )
+          ]
+
+          if not win_row.empty:
+            winner_points = win_row.iloc[0, 4]
+          if not fin_row.empty:
+            finalist_points = fin_row.iloc[0, 4]
+        except Exception:
+          pass
+
+      df = pd.DataFrame(players)
+      if not df.empty:
+        age_group = result.get("age_group", "").upper()
+        active_rankings = u12_df if "12" in age_group else u14_df
+        if (
+            active_rankings is not None
+            and "Player" in active_rankings.columns
+            and "Rank" in active_rankings.columns
+        ):
+          df = pd.merge(
+              df,
+              active_rankings[["Player", "Rank"]],
+              left_on="Player Name",
+              right_on="Player",
+              how="left",
+          )
+          if "Player" in df.columns:
+            df = df.drop(columns=["Player"])
+          df["Rank"] = df["Rank"].fillna("Not Found")
+          numeric_ranks = pd.to_numeric(df["Rank"], errors="coerce")
+          df["Rank"] = [
+              str(int(x)) if pd.notnull(x) else val
+              for x, val in zip(numeric_ranks, df["Rank"])
+          ]
+        else:
+          df["Rank"] = "Unavailable"
+
+        if "Rank" in df.columns:
+          df = df[["Player Name", "Rank", "Registration Status"]]
+
+        df["_is_maindraw"] = (
+            df["Registration Status"]
+            .astype(str)
+            .str.lower()
+            .str.contains("maindraw")
+        )
+        df["_sort_rank"] = pd.to_numeric(df["Rank"], errors="coerce").fillna(
+            float("inf")
+        )
+
+        df_maindraw = df[df["_is_maindraw"]].sort_values(
+            by="_sort_rank", ascending=True
+        )
+        df_others = df[~df["_is_maindraw"]].sort_values(
+            by="Registration Status", ascending=True
+        )
+        df = pd.concat([df_maindraw, df_others]).drop(
+            columns=["_is_maindraw", "_sort_rank"]
+        )
+      else:
+        df = pd.DataFrame(columns=["Player Name", "Rank", "Registration Status"])
+
+      result["winner_points"] = winner_points
+      result["finalist_points"] = finalist_points
+      result["processed_df"] = df
+
       tournament_results.append((url, result))
       progress_bar.progress((i + 1) / len(urls))
 
@@ -283,93 +424,6 @@ if st.button("Retrieve Data", type="primary"):
         with col3:
           st.metric("🏆 Age Group", data["age_group"])
 
-        # Points Lookup Calculation
-        winner_points = "N/A"
-        finalist_points = "N/A"
-
-        if points_df is not None and not points_df.empty:
-          players = data.get("players", [])
-          total_players = len(players)
-          age_group_raw = data.get("age_group", "").upper()
-          star_level_raw = data.get("star_level", "").lower()
-
-          target_age = "12" if "12" in age_group_raw else "14"
-
-          try:
-            df_pts = points_df.copy()
-            df_pts["Age_Str"] = df_pts.iloc[:, 0].astype(str)
-            df_pts["Draw_Str"] = df_pts.iloc[:, 1].astype(str)
-            df_pts["Type_Str"] = df_pts.iloc[:, 2].astype(str)
-            df_pts["Finish_Str"] = df_pts.iloc[:, 3].astype(str)
-
-            filtered_pts = df_pts[
-                df_pts["Age_Str"].str.contains(target_age, case=False, na=False)
-            ]
-
-            if "rising" in star_level_raw:
-              filtered_pts = filtered_pts[
-                  filtered_pts["Type_Str"].str.contains(
-                      "rising", case=False, na=False
-                  )
-              ]
-            elif "provincial" in star_level_raw:
-              filtered_pts = filtered_pts[
-                  filtered_pts["Type_Str"].str.contains(
-                      "provincial", case=False, na=False
-                  )
-              ]
-            else:
-              star_match = re.search(r"(\d+)", star_level_raw)
-              if star_match:
-                star_num = star_match.group(1)
-                filtered_pts = filtered_pts[
-                    filtered_pts["Type_Str"].str.contains(
-                        star_num, case=False, na=False
-                    )
-                ]
-
-            def match_draw_size(draw_text, count):
-              draw_text_lower = draw_text.lower()
-              if "or more" in draw_text_lower:
-                num_match = re.search(r"(\d+)", draw_text_lower)
-                if num_match and count >= int(num_match.group(1)):
-                  return True
-              else:
-                numbers = [int(n) for n in re.findall(r"\d+", draw_text_lower)]
-                if len(numbers) == 1:
-                  if count == numbers[0]:
-                    return True
-                elif len(numbers) >= 2:
-                  if numbers[0] <= count <= numbers[1]:
-                    return True
-              return False
-
-            filtered_pts = filtered_pts[
-                filtered_pts["Draw_Str"].apply(
-                    lambda x: match_draw_size(x, total_players)
-                )
-            ]
-
-            win_row = filtered_pts[
-                filtered_pts["Finish_Str"].str.contains(
-                    "winner", case=False, na=False
-                )
-            ]
-            fin_row = filtered_pts[
-                filtered_pts["Finish_Str"].str.contains(
-                    "finalist", case=False, na=False
-                )
-            ]
-
-            if not win_row.empty:
-              winner_points = win_row.iloc[0, 4]
-            if not fin_row.empty:
-              finalist_points = fin_row.iloc[0, 4]
-          except Exception:
-            pass
-        elif points_error:
-          st.warning(f"Could not load points.xlsx: {points_error}")
-
         st.markdown(
             """
             <style>
@@ -387,9 +441,9 @@ if st.button("Retrieve Data", type="primary"):
 
         col4, col5 = st.columns(2)
         with col4:
-          st.metric("🥇 Winner Points Potential", winner_points)
+          st.metric("🥇 Winner Points Potential", data["winner_points"])
         with col5:
-          st.metric("🥈 Finalist Points Potential", finalist_points)
+          st.metric("🥈 Finalist Points Potential", data["finalist_points"])
 
         st.divider()
         st.subheader("Registered Players & Rankings")
@@ -401,76 +455,9 @@ if st.button("Retrieve Data", type="primary"):
               " URL format."
           )
         else:
-          df = pd.DataFrame(players)
-          age_group = data.get("age_group", "").upper()
-
-          if "12" in age_group:
-            active_rankings = u12_df
-            sheet_name = u12_sheet
-            category_label = "U12"
-          else:
-            active_rankings = u14_df
-            sheet_name = u14_sheet
-            category_label = "U14"
-
-          if active_rankings is not None:
-            if (
-                "Player" in active_rankings.columns
-                and "Rank" in active_rankings.columns
-            ):
-              df = pd.merge(
-                  df,
-                  active_rankings[["Player", "Rank"]],
-                  left_on="Player Name",
-                  right_on="Player",
-                  how="left",
-              )
-              if "Player" in df.columns:
-                df = df.drop(columns=["Player"])
-
-              df["Rank"] = df["Rank"].fillna("Not Found")
-
-              numeric_ranks = pd.to_numeric(df["Rank"], errors="coerce")
-              df["Rank"] = [
-                  str(int(x)) if pd.notnull(x) else val
-                  for x, val in zip(numeric_ranks, df["Rank"])
-              ]
-
-              st.caption(
-                  f"Matched using {category_label} rankings (Sheet:"
-                  f" {sheet_name})"
-              )
-            else:
-              df["Rank"] = "Columns missing"
-          else:
-            df["Rank"] = "Unavailable"
-
-          if "Rank" in df.columns:
-            df = df[["Player Name", "Rank", "Registration Status"]]
-
-          df["_is_maindraw"] = (
-              df["Registration Status"]
-              .astype(str)
-              .str.lower()
-              .str.contains("maindraw")
-          )
-          df["_sort_rank"] = pd.to_numeric(df["Rank"], errors="coerce").fillna(
-              float("inf")
-          )
-
-          df_maindraw = df[df["_is_maindraw"]].sort_values(
-              by="_sort_rank", ascending=True
-          )
-          df_others = df[~df["_is_maindraw"]].sort_values(
-              by="Registration Status", ascending=True
-          )
-
-          df = pd.concat([df_maindraw, df_others]).drop(
-              columns=["_is_maindraw", "_sort_rank"]
-          )
-
-          styled_df = df.style.apply(style_player_status, axis=1)
-          table_height = (len(df) + 1) * 35 + 10
+          df_display = data["processed_df"]
+          styled_df = df_display.style.apply(style_player_status, axis=1)
+          table_height = (len(df_display) + 1) * 35 + 10
 
           st.dataframe(
               styled_df,
@@ -488,113 +475,123 @@ if st.button("Retrieve Data", type="primary"):
               },
           )
 
-        # Google Gemini API Strategic Advisor Button & Integration (with unique compound key)
-        st.markdown("### 🤖 AI Withdrawal & Tournament Strategy Advisor")
-        st.markdown(
-            "Get expert statistical and tennis analysis powered by **Google"
-            " Gemini** regarding your tournament entries, OTA Multiple Entries"
-            " Policy compliance, and ranking point optimization."
-        )
+    # --- SINGLE GLOBAL GEMINI ADVISOR INTEGRATION ---
+    st.divider()
+    st.markdown("### 🤖 Global AI Tournament Prioritization & Strategy Advisor")
+    st.markdown(
+        "Analyze **all** retrieved tournaments together to get a comprehensive"
+        " recommendation on which event(s) Ela should prioritize, which to"
+        " withdraw from, and how to comply with the OTA Multiple Entries"
+        " Policy."
+    )
 
-        safe_url_key = re.sub(r"[^a-zA-Z0-9]", "_", url)
-        button_key = f"gemini_btn_{i}_{safe_url_key}"
+    if st.button(
+        "Generate Comprehensive Gemini Priority Recommendation",
+        type="primary",
+        key="global_gemini_btn",
+    ):
+      with st.spinner(
+          "Consulting Google Gemini with all tournament fields, rankings, and"
+          " policy guidelines..."
+      ):
+        try:
+          policy_text = ""
+          try:
+            with open("multientrypol.txt", "r", encoding="utf-8") as f:
+              policy_text = f.read()
+          except Exception:
+            policy_text = "Policy text could not be loaded."
 
-        if st.button(
-            f"Generate Gemini Recommendation for {data.get('title', 'Tournament')}",
-            key=button_key,
-        ):
-          with st.spinner(
-              "Consulting Google Gemini with tournament context, historical"
-              " patterns, and policy guidelines..."
-          ):
-            try:
-              policy_text = ""
-              try:
-                with open("multientrypol.txt", "r", encoding="utf-8") as f:
-                  policy_text = f.read()
-              except Exception:
-                policy_text = "Policy text could not be loaded."
+          ela_df_context = ""
+          try:
+            ela_df = pd.read_excel("Ela.xlsx")
+            ela_df_context = ela_df.to_string()
+          except Exception:
+            ela_df_context = "Ela points data unavailable."
 
-              ela_df_context = ""
-              try:
-                ela_df = pd.read_excel("Ela.xlsx")
-                ela_df_context = ela_df.to_string()
-              except Exception:
-                ela_df_context = "Ela points data unavailable."
-
-              tourn_summary = ""
-              try:
-                tourn_xls = pd.ExcelFile("tourn.xlsx")
-                for s_name in tourn_xls.sheet_names:
-                  s_df = pd.read_excel(tourn_xls, s_name)
-                  tourn_summary += (
-                      f"\nSheet {s_name}:\n"
-                      f"{s_df['Post-registration status'].value_counts().to_string()}\n"
-                  )
-              except Exception:
-                tourn_summary = "Historical tournament patterns unavailable."
-
-              players_summary = ""
-              try:
-                p_xls = pd.ExcelFile("players.xlsx")
-                for s_name in p_xls.sheet_names:
-                  p_df = pd.read_excel(p_xls, s_name)
-                  players_summary += (
-                      f"\nPlayers sheet {s_name} sample:\n"
-                      f"{p_df[['Player', 'Rank', 'Points']].head(5).to_string()}\n"
-                  )
-              except Exception:
-                players_summary = "Player statistics summary unavailable."
-
-              gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
-              if not gemini_api_key:
-                st.error(
-                    "GEMINI_API_KEY is missing from Streamlit secrets."
-                    " Configure it in secrets.toml."
-                )
-              else:
-                genai.configure(api_key=gemini_api_key)
-                model = genai.GenerativeModel("gemini-2.5-flash")
-
-                prompt = f"""
-                            You are an expert AI sports analyst with advanced skills in statistical analysis and competitive tennis strategy. 
-                            Your task is to advise junior tennis player Ela Velic on which tournaments to withdraw from versus which one(s) to stay registered for before the withdrawal deadline, assuming today is the last day of the withdrawal deadline.
-
-                            CONTEXT & INPUT DATA:
-                            1. OTA Multiple Entries Policy (`multientrypol.txt`):
-                            {policy_text}
-
-                            2. Ela's Points & Ranking History (`Ela.xlsx` - Junior rankings are based on the best 5 tournaments over 52 weeks):
-                            {ela_df_context}
-
-                            3. Historical Concurrent Tournament Drop/Participation Patterns (`tourn.xlsx`):
-                            {tourn_summary}
-
-                            4. Scraped Field Data & Competitor Statistics for Current Week (`players.xlsx` & current tournament view):
-                            Tournament Title: {data.get('title')}
-                            Star Level: {data.get('star_level')}
-                            Age Group: {data.get('age_group')}
-                            Dates: {data.get('date')}
-                            Winner Points Potential: {winner_points}
-                            Finalist Points Potential: {finalist_points}
-                            Registered Players & Field:
-                            {df.to_string() if 'df' in locals() else 'N/A'}
-                            
-                            {players_summary}
-
-                            OBJECTIVE:
-                            Provide a structured, rigorous recommendation and detailed analysis on whether Ela should stay in or withdraw from this tournament. 
-                            - Analyze conflict implications under OTA Multiple Entries Policy.
-                            - Evaluate field strength (rankings, WTN, win-loss records of competitors).
-                            - Calculate whether winning or reaching the finalist stage will exceed Ela's current 5th-best score to replace it and boost her ranking total.
-                            - Give clear, actionable instructions.
-                            """
-
-                response = model.generate_content(prompt)
-                st.markdown("### 📋 Gemini Expert Recommendation")
-                st.write(response.text)
-
-            except Exception as api_err:
-              st.error(
-                  f"Failed to generate Gemini response: {str(api_err)}"
+          tourn_summary = ""
+          try:
+            tourn_xls = pd.ExcelFile("tourn.xlsx")
+            for s_name in tourn_xls.sheet_names:
+              s_df = pd.read_excel(tourn_xls, s_name)
+              tourn_summary += (
+                  f"\nSheet {s_name}:\n"
+                  f"{s_df['Post-registration status'].value_counts().to_string()}\n"
               )
+          except Exception:
+            tourn_summary = "Historical tournament patterns unavailable."
+
+          players_summary = ""
+          try:
+            p_xls = pd.ExcelFile("players.xlsx")
+            for s_name in p_xls.sheet_names:
+              p_df = pd.read_excel(p_xls, s_name)
+              players_summary += (
+                  f"\nPlayers sheet {s_name} sample:\n"
+                  f"{p_df[['Player', 'Rank', 'Points']].head(5).to_string()}\n"
+              )
+          except Exception:
+            players_summary = "Player statistics summary unavailable."
+
+          # Compile context for all retrieved tournaments
+          all_tournaments_context = ""
+          for idx, (t_url, t_data) in enumerate(tournament_results):
+            if "error" in t_data:
+              continue
+            all_tournaments_context += f"""
+                        --- TOURNAMENT {idx+1} ---
+                        Title: {t_data.get('title')}
+                        URL: {t_url}
+                        Star Level: {t_data.get('star_level')}
+                        Age Group: {t_data.get('age_group')}
+                        Dates: {t_data.get('date')}
+                        Winner Points Potential: {t_data.get('winner_points')}
+                        Finalist Points Potential: {t_data.get('finalist_points')}
+                        Field & Status:
+                        {t_data.get('processed_df').to_string() if not t_data.get('processed_df').empty else 'N/A'}
+                        """
+
+          gemini_api_key = st.secrets.get("GEMINI_API_KEY", "")
+          if not gemini_api_key:
+            st.error(
+                "GEMINI_API_KEY is missing from Streamlit secrets. Configure it"
+                " in secrets.toml."
+            )
+          else:
+            genai.configure(api_key=gemini_api_key)
+            model = genai.GenerativeModel("gemini-2.5-flash")
+
+            prompt = f"""
+                        You are an expert AI sports analyst with advanced skills in statistical analysis and competitive tennis strategy. 
+                        Your task is to advise junior tennis player Ela Velic on a global strategy across ALL her registered tournaments. 
+                        Specifically, recommend which tournament(s) she should prioritize and stay registered for, and which one(s) she should withdraw from before the deadline, keeping in mind the OTA Multiple Entries Policy.
+
+                        CONTEXT & INPUT DATA:
+                        1. OTA Multiple Entries Policy (`multientrypol.txt`):
+                        {policy_text}
+
+                        2. Ela's Points & Ranking History (`Ela.xlsx` - Junior rankings are best 5 tournaments over 52 weeks):
+                        {ela_df_context}
+
+                        3. Historical Concurrent Tournament Drop/Participation Patterns (`tourn.xlsx`):
+                        {tourn_summary}
+
+                        4. Scraped Field Data & Competitor Statistics for ALL Current Tournaments Entered:
+                        {all_tournaments_context}
+                        
+                        {players_summary}
+
+                        OBJECTIVE:
+                        Provide a structured, rigorous comparative analysis and recommendation:
+                        - Cross-analyze date overlaps and potential policy violations under the OTA Multiple Entries Policy.
+                        - Compare field strength, main draw entry chances (Main Draw vs Reserve status), and potential ranking point gains across all listed tournaments.
+                        - Clearly state which specific tournament(s) Ela should commit to and which ones she should drop.
+                        - Give clear, actionable instructions.
+                        """
+
+            response = model.generate_content(prompt)
+            st.markdown("### 📋 Gemini Comprehensive Priority Recommendation")
+            st.write(response.text)
+
+        except Exception as api_err:
+          st.error(f"Failed to generate Gemini response: {str(api_err)}")
