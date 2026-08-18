@@ -8,18 +8,43 @@ import streamlit as st
 
 @st.cache_data(ttl=3600)
 def load_u14_rankings():
-  """Fetches the public U14 master ranking excel file from GitHub."""
+  """Fetches the public U14 master ranking excel file from GitHub,
+
+  ignoring 'trends' sheets and matching weekly formats like 'Week NN-YYYY'.
+  """
   excel_url = (
       "https://raw.githubusercontent.com/bosanac-exe/ota-gu14/main/master.xlsx"
   )
   try:
-    excel_file = pd.ExcelFile(excel_url)
+    response = requests.get(excel_url, timeout=15)
+    response.raise_for_status()
+
+    excel_file = pd.ExcelFile(io.BytesIO(response.content))
     sheet_names = excel_file.sheet_names
+
     if not sheet_names:
       return None, "No sheets found in U14 file."
-    latest_sheet = sorted(sheet_names)[-1]
-    df_rankings = pd.read_excel(excel_file, sheet_name=latest_sheet)
-    return df_rankings, latest_sheet
+
+    valid_sheets = []
+    pattern = re.compile(r"^week\s*(\d+)-(\d{4})$", re.IGNORECASE)
+
+    for sheet in sheet_names:
+      if sheet.strip().lower() == "trends":
+        continue
+      match = pattern.match(sheet.strip())
+      if match:
+        week_num = int(match.group(1))
+        year = int(match.group(2))
+        valid_sheets.append((year, week_num, sheet))
+
+    if not valid_sheets:
+      return None, "No valid weekly sheets (Week NN-YYYY) found."
+
+    valid_sheets.sort(key=lambda x: (x[0], x[1]))
+    latest_sheet_name = valid_sheets[-1][2]
+
+    df_rankings = pd.read_excel(excel_file, sheet_name=latest_sheet_name)
+    return df_rankings, latest_sheet_name
   except Exception as e:
     return None, str(e)
 
