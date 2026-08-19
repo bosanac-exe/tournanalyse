@@ -4,6 +4,10 @@ import io
 import pandas as pd
 import re
 import requests
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 import streamlit as st
 
 
@@ -170,6 +174,155 @@ def style_player_status(row):
   return [""] * len(row)
 
 
+def generate_pdf_report(tournament_results, advisor_text):
+  """Generates a professionally formatted PDF report using ReportLab."""
+  buffer = io.BytesIO()
+  doc = SimpleDocTemplate(
+      buffer,
+      pagesize=letter,
+      rightMargin=36,
+      leftMargin=36,
+      topMargin=36,
+      bottomMargin=36,
+  )
+  styles = getSampleStyleSheet()
+
+  # Custom styles
+  title_style = ParagraphStyle(
+      "ReportTitle",
+      parent=styles["Heading1"],
+      fontSize=20,
+      textColor=colors.HexColor("#1e293b"),
+      spaceAfter=15,
+  )
+  h2_style = ParagraphStyle(
+      "ReportH2",
+      parent=styles["Heading2"],
+      fontSize=14,
+      textColor=colors.HexColor("#0f172a"),
+      spaceBefore=15,
+      spaceAfter=8,
+  )
+  h3_style = ParagraphStyle(
+      "ReportH3",
+      parent=styles["Heading3"],
+      fontSize=12,
+      textColor=colors.HexColor("#334155"),
+      spaceBefore=10,
+      spaceAfter=6,
+  )
+  body_style = ParagraphStyle(
+      "ReportBody",
+      parent=styles["Normal"],
+      fontSize=9,
+      leading=13,
+      textColor=colors.HexColor("#1e293b"),
+      spaceAfter=6,
+  )
+  table_text_style = ParagraphStyle(
+      "TableText", parent=styles["Normal"], fontSize=8, leading=10
+  )
+
+  story = []
+
+  # Title
+  story.append(
+      Paragraph(
+          "🎾 Tournament Draw & AI Strategy Advisory Report", title_style
+      )
+  )
+  story.append(
+      Paragraph(
+          "Generated via Tournament Draw & Player Status Scraper", body_style
+      )
+  )
+  story.append(Spacer(1, 10))
+
+  # AI Advisor Section
+  story.append(
+      Paragraph("🤖 Global AI Tournament Priority Recommendation", h2_style)
+  )
+  if advisor_text:
+    for para in advisor_text.split("\n\n"):
+      if para.strip():
+        story.append(Paragraph(para.replace("\n", "<br/>"), body_style))
+  else:
+    story.append(
+        Paragraph("No AI advisory recommendation generated yet.", body_style)
+    )
+
+  story.append(Spacer(1, 15))
+  story.append(Paragraph("📋 Individual Tournament Details & Fields", h2_style))
+
+  # Tournaments Breakdown
+  for idx, (url, data) in enumerate(tournament_results):
+    if "error" in data:
+      story.append(
+          Paragraph(f"Tournament {idx+1}: [Error loading URL]", h3_style)
+      )
+      continue
+
+    story.append(
+        Paragraph(
+            f"Tournament {idx+1}: {data.get('title', 'Untitled')}", h3_style
+        )
+    )
+    meta_text = (
+        f"<b>Dates:</b> {data.get('date')} | <b>Star Level:</b>"
+        f" {data.get('star_level')} | <b>Age Group:</b>"
+        f" {data.get('age_group')}<br/>"
+        f"<b>Winner Points Potential:</b> {data.get('winner_points')} |"
+        f" <b>Finalist Points Potential:</b> {data.get('finalist_points')}"
+    )
+    story.append(Paragraph(meta_text, body_style))
+
+    df_display = data.get("processed_df", pd.DataFrame())
+    if not df_display.empty:
+      table_data = [[
+          Paragraph("<b>Player Name</b>", table_text_style),
+          Paragraph("<b>Rank</b>", table_text_style),
+          Paragraph("<b>Registration Status</b>", table_text_style),
+      ]]
+      for _, row in df_display.iterrows():
+        table_data.append([
+            Paragraph(str(row["Player Name"]), table_text_style),
+            Paragraph(str(row["Rank"]), table_text_style),
+            Paragraph(str(row["Registration Status"]), table_text_style),
+        ])
+
+      t = Table(table_data, colWidths=[200, 80, 260])
+      t.setStyle(
+          TableStyle([
+              (
+                  "BACKGROUND",
+                  (0, 0),
+                  (-1, 0),
+                  colors.HexColor("#f1f5f9"),
+              ),
+              ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+              ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+              ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+              ("TOPPADDING", (0, 0), (-1, -1), 4),
+              (
+                  "GRID",
+                  (0, 0),
+                  (-1, -1),
+                  0.5,
+                  colors.HexColor("#cbd5e1"),
+              ),
+          ])
+      )
+      story.append(t)
+    else:
+      story.append(Paragraph("No player data available.", body_style))
+
+    story.append(Spacer(1, 10))
+
+  doc.build(story)
+  buffer.seek(0)
+  return buffer.getvalue()
+
+
 st.set_page_config(
     page_title="Tournament Draw Scraper", page_icon="🎾", layout="wide"
 )
@@ -191,6 +344,8 @@ urls_input = st.text_area(
 # Initialize session state for persistent storage
 if "tournament_results" not in st.session_state:
   st.session_state.tournament_results = None
+if "gemini_response_text" not in st.session_state:
+  st.session_state.gemini_response_text = ""
 
 if st.button("Retrieve Data", type="primary"):
   urls = [line.strip() for line in urls_input.split("\n") if line.strip()]
@@ -352,6 +507,7 @@ if st.button("Retrieve Data", type="primary"):
     status_text.empty()
     progress_bar.empty()
     st.session_state.tournament_results = tournament_results
+    st.session_state.gemini_response_text = ""
 
 # Render results if they exist in session state
 if st.session_state.tournament_results:
@@ -461,10 +617,7 @@ if st.session_state.tournament_results:
           tourn_xls = pd.ExcelFile("tourn.xlsx")
           for s_name in tourn_xls.sheet_names:
             s_df = pd.read_excel(tourn_xls, s_name)
-            tourn_summary += (
-                f"\nSheet {s_name}:\n"
-                f"{s_df.to_string()}\n"
-            )
+            tourn_summary += f"\nSheet {s_name}:\n{s_df.to_string()}\n"
         except Exception:
           tourn_summary = "Historical tournament patterns unavailable."
 
@@ -473,10 +626,7 @@ if st.session_state.tournament_results:
           p_xls = pd.ExcelFile("players.xlsx")
           for s_name in p_xls.sheet_names:
             p_df = pd.read_excel(p_xls, s_name)
-            players_summary += (
-                f"\nPlayers sheet {s_name} sample:\n"
-                f"{p_df.head(5).to_string()}\n"
-            )
+            players_summary += f"\nPlayers sheet {s_name} sample:\n{p_df.head(5).to_string()}\n"
         except Exception:
           players_summary = "Player statistics summary unavailable."
 
@@ -534,8 +684,24 @@ if st.session_state.tournament_results:
                     """
 
           response = model.generate_content(prompt)
-          st.markdown("### 📋 Gemini Comprehensive Priority Recommendation")
-          st.write(response.text)
+          st.session_state.gemini_response_text = response.text
 
       except Exception as api_err:
         st.error(f"Failed to generate Gemini response: {str(api_err)}")
+
+  # Display Gemini response if present in session state
+  if st.session_state.gemini_response_text:
+    st.markdown("### 📋 Gemini Comprehensive Priority Recommendation")
+    st.write(st.session_state.gemini_response_text)
+
+    st.markdown("---")
+    pdf_bytes = generate_pdf_report(
+        tournament_results, st.session_state.gemini_response_text
+    )
+    st.download_button(
+        label="📥 Download PDF Report",
+        data=pdf_bytes,
+        file_name="Ela_Tournament_Strategy_Report.pdf",
+        mime="application/pdf",
+        type="primary",
+    )
