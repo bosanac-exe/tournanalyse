@@ -7,7 +7,16 @@ import requests
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.pdfgen import canvas
+from reportlab.platypus import (
+    HRFlowable,
+    KeepTogether,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 import streamlit as st
 
 
@@ -175,150 +184,355 @@ def style_player_status(row):
 
 
 def generate_pdf_report(tournament_results, advisor_text):
-  """Generates a professionally formatted PDF report using ReportLab."""
+  """Generates an exceptionally polished, readable PDF report using ReportLab."""
   buffer = io.BytesIO()
+
+  class NumberedCanvas(canvas.Canvas):
+
+    def __init__(self, *args, **kwargs):
+      super().__init__(*args, **kwargs)
+      self._saved_page_states = []
+
+    def showPage(self):
+      self._saved_page_states.append(dict(self.__dict__))
+      self._startPage()
+
+    def save(self):
+      num_pages = len(self._saved_page_states)
+      for state in self._saved_page_states:
+        self.__dict__.update(state)
+        self.draw_header_footer(num_pages)
+        super().showPage()
+      super().save()
+
+    def draw_header_footer(self, page_count):
+      self.saveState()
+      self.setFont("Helvetica", 8)
+      self.setFillColor(colors.HexColor("#718096"))
+
+      if self._pageNumber > 1:
+        self.drawString(
+            36, 760, "Ela Velic — Tournament Strategy & Multi-Entry Analysis"
+        )
+        self.setStrokeColor(colors.HexColor("#E2E8F0"))
+        self.setLineWidth(0.5)
+        self.line(36, 752, letter[0] - 36, 752)
+
+      self.setStrokeColor(colors.HexColor("#E2E8F0"))
+      self.setLineWidth(0.5)
+      self.line(36, 45, letter[0] - 36, 45)
+
+      page_text = f"Page {self._pageNumber} of {page_count}"
+      self.drawRightString(letter[0] - 36, 32, page_text)
+      self.drawString(36, 32, "Confidential — OTA Junior Competitive Analysis")
+      self.restoreState()
+
   doc = SimpleDocTemplate(
       buffer,
       pagesize=letter,
       rightMargin=36,
       leftMargin=36,
-      topMargin=36,
-      bottomMargin=36,
+      topMargin=54,
+      bottomMargin=54,
   )
+
   styles = getSampleStyleSheet()
 
-  # Custom styles
   title_style = ParagraphStyle(
-      "ReportTitle",
+      "DocTitle",
       parent=styles["Heading1"],
-      fontSize=20,
-      textColor=colors.HexColor("#1e293b"),
-      spaceAfter=15,
+      fontSize=18,
+      leading=22,
+      textColor=colors.HexColor("#1A365D"),
+      fontName="Helvetica-Bold",
+      spaceAfter=12,
   )
-  h2_style = ParagraphStyle(
-      "ReportH2",
+
+  h1_style = ParagraphStyle(
+      "SectionH1",
       parent=styles["Heading2"],
-      fontSize=14,
-      textColor=colors.HexColor("#0f172a"),
-      spaceBefore=15,
-      spaceAfter=8,
-  )
-  h3_style = ParagraphStyle(
-      "ReportH3",
-      parent=styles["Heading3"],
-      fontSize=12,
-      textColor=colors.HexColor("#334155"),
-      spaceBefore=10,
+      fontSize=13,
+      leading=16,
+      textColor=colors.HexColor("#2B6CB0"),
+      fontName="Helvetica-Bold",
+      spaceBefore=16,
       spaceAfter=6,
+      keepWithNext=True,
   )
+
+  h2_style = ParagraphStyle(
+      "SectionH2",
+      parent=styles["Heading3"],
+      fontSize=10.5,
+      leading=14,
+      textColor=colors.HexColor("#2D3748"),
+      fontName="Helvetica-Bold",
+      spaceBefore=12,
+      spaceAfter=4,
+      keepWithNext=True,
+  )
+
   body_style = ParagraphStyle(
-      "ReportBody",
+      "BodyTextCustom",
       parent=styles["Normal"],
       fontSize=9,
       leading=13,
-      textColor=colors.HexColor("#1e293b"),
+      textColor=colors.HexColor("#2D3748"),
       spaceAfter=6,
   )
-  table_text_style = ParagraphStyle(
-      "TableText", parent=styles["Normal"], fontSize=8, leading=10
+
+  bullet_style = ParagraphStyle(
+      "BulletCustom",
+      parent=body_style,
+      leftIndent=15,
+      firstLineIndent=-10,
+      spaceAfter=3,
+  )
+
+  quote_style = ParagraphStyle(
+      "QuoteCustom",
+      parent=body_style,
+      fontSize=9,
+      leading=13,
+      textColor=colors.HexColor("#1A202C"),
+      backColor=colors.HexColor("#EDF2F7"),
+      borderColor=colors.HexColor("#CBD5E0"),
+      borderWidth=1,
+      borderPadding=6,
+      spaceBefore=6,
+      spaceAfter=8,
+  )
+
+  table_header_style = ParagraphStyle(
+      "TableHeader",
+      parent=styles["Normal"],
+      fontSize=8.5,
+      leading=11,
+      textColor=colors.white,
+      fontName="Helvetica-Bold",
+  )
+
+  table_cell_style = ParagraphStyle(
+      "TableCell",
+      parent=styles["Normal"],
+      fontSize=8,
+      leading=10.5,
+      textColor=colors.HexColor("#2D3748"),
+  )
+
+  table_cell_maindraw = ParagraphStyle(
+      "TableCellMain",
+      parent=table_cell_style,
+      textColor=colors.HexColor("#155724"),
+      fontName="Helvetica-Bold",
+  )
+
+  table_cell_reserve = ParagraphStyle(
+      "TableCellReserve",
+      parent=table_cell_style,
+      textColor=colors.HexColor("#856404"),
+      fontName="Helvetica-Bold",
   )
 
   story = []
 
-  # Title
   story.append(
       Paragraph(
-          "🎾 Tournament Draw & AI Strategy Advisory Report", title_style
+          "🎾 Comprehensive Tournament Priority & Strategy Report", title_style
       )
   )
   story.append(
       Paragraph(
-          "Generated via Tournament Draw & Player Status Scraper", body_style
+          "<b>Player:</b> Ela Velic &nbsp;|&nbsp; <b>Framework:</b> OTA Junior"
+          " Competitive Analysis",
+          body_style,
       )
   )
-  story.append(Spacer(1, 10))
+  story.append(
+      HRFlowable(
+          width="100%",
+          thickness=1.5,
+          color=colors.HexColor("#2B6CB0"),
+          spaceBefore=6,
+          spaceAfter=12,
+      )
+  )
 
-  # AI Advisor Section
-  story.append(
-      Paragraph("🤖 Global AI Tournament Priority Recommendation", h2_style)
-  )
+  def parse_inline(txt):
+    txt = re.sub(r"\*\*\*(.*?)\*\*\*", r"<b><i>\1</i></b>", txt)
+    txt = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", txt)
+    txt = re.sub(r"\*(.*?)\*", r"<i>\1</i>", txt)
+    return txt
+
   if advisor_text:
-    for para in advisor_text.split("\n\n"):
-      if para.strip():
-        story.append(Paragraph(para.replace("\n", "<br/>"), body_style))
-  else:
+    story.append(Paragraph("🤖 Gemini Priority Recommendation", h1_style))
     story.append(
-        Paragraph("No AI advisory recommendation generated yet.", body_style)
-    )
-
-  story.append(Spacer(1, 15))
-  story.append(Paragraph("📋 Individual Tournament Details & Fields", h2_style))
-
-  # Tournaments Breakdown
-  for idx, (url, data) in enumerate(tournament_results):
-    if "error" in data:
-      story.append(
-          Paragraph(f"Tournament {idx+1}: [Error loading URL]", h3_style)
-      )
-      continue
-
-    story.append(
-        Paragraph(
-            f"Tournament {idx+1}: {data.get('title', 'Untitled')}", h3_style
+        HRFlowable(
+            width="100%",
+            thickness=0.75,
+            color=colors.HexColor("#2B6CB0"),
+            spaceAfter=8,
         )
     )
-    meta_text = (
-        f"<b>Dates:</b> {data.get('date')} | <b>Star Level:</b>"
-        f" {data.get('star_level')} | <b>Age Group:</b>"
-        f" {data.get('age_group')}<br/>"
-        f"<b>Winner Points Potential:</b> {data.get('winner_points')} |"
-        f" <b>Finalist Points Potential:</b> {data.get('finalist_points')}"
-    )
-    story.append(Paragraph(meta_text, body_style))
 
-    df_display = data.get("processed_df", pd.DataFrame())
-    if not df_display.empty:
-      table_data = [[
-          Paragraph("<b>Player Name</b>", table_text_style),
-          Paragraph("<b>Rank</b>", table_text_style),
-          Paragraph("<b>Registration Status</b>", table_text_style),
-      ]]
-      for _, row in df_display.iterrows():
-        table_data.append([
-            Paragraph(str(row["Player Name"]), table_text_style),
-            Paragraph(str(row["Rank"]), table_text_style),
-            Paragraph(str(row["Registration Status"]), table_text_style),
-        ])
+    lines = advisor_text.split("\n")
+    i = 0
+    while i < len(lines):
+      line = lines[i].strip()
 
-      t = Table(table_data, colWidths=[200, 80, 260])
-      t.setStyle(
-          TableStyle([
-              (
-                  "BACKGROUND",
-                  (0, 0),
-                  (-1, 0),
-                  colors.HexColor("#f1f5f9"),
-              ),
-              ("ALIGN", (0, 0), (-1, -1), "LEFT"),
-              ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-              ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-              ("TOPPADDING", (0, 0), (-1, -1), 4),
-              (
-                  "GRID",
-                  (0, 0),
-                  (-1, -1),
-                  0.5,
-                  colors.HexColor("#cbd5e1"),
-              ),
-          ])
-      )
-      story.append(t)
-    else:
-      story.append(Paragraph("No player data available.", body_style))
+      if line.startswith("|") and "|" in line[1:]:
+        table_lines = [line]
+        i += 1
+        while i < len(lines) and lines[i].strip().startswith("|"):
+          table_lines.append(lines[i].strip())
+          i += 1
 
+        rows = []
+        for t_line in table_lines:
+          if "---" in t_line:
+            continue
+          cells = [parse_inline(c.strip()) for c in t_line.split("|")[1:-1]]
+          rows.append(cells)
+
+        if rows:
+          table_data = []
+          for row_idx, row in enumerate(rows):
+            formatted_row = []
+            for cell in row:
+              if row_idx == 0:
+                formatted_row.append(
+                    Paragraph(f"<b>{cell}</b>", table_header_style)
+                )
+              else:
+                formatted_row.append(Paragraph(cell, table_cell_style))
+            table_data.append(formatted_row)
+
+          num_cols = len(table_data[0]) if table_data else 1
+          col_width = 540 / num_cols
+          t = Table(table_data, colWidths=[col_width] * num_cols)
+          t.setStyle(
+              TableStyle([
+                  ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2B6CB0")),
+                  ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                  ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                  ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                  ("TOPPADDING", (0, 0), (-1, -1), 4),
+                  ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                  ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                  ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                  ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+                  (
+                      "ROWBACKGROUNDS",
+                      (0, 1),
+                      (-1, -1),
+                      [colors.white, colors.HexColor("#F7FAFC")],
+                  ),
+              ])
+          )
+          story.append(t)
+          story.append(Spacer(1, 6))
+        continue
+
+      if not line:
+        i += 1
+        continue
+
+      if line.startswith("# "):
+        story.append(Paragraph(parse_inline(line[2:]), h1_style))
+      elif line.startswith("## "):
+        story.append(Paragraph(parse_inline(line[3:]), h1_style))
+      elif line.startswith("### "):
+        story.append(Paragraph(parse_inline(line[4:]), h2_style))
+      elif line.startswith("> "):
+        story.append(Paragraph(parse_inline(line[2:]), quote_style))
+      elif line.startswith("* ") or line.startswith("- "):
+        story.append(Paragraph(f"• {parse_inline(line[2:])}", bullet_style))
+      else:
+        story.append(Paragraph(parse_inline(line), body_style))
+
+      i += 1
+
+  if tournament_results:
     story.append(Spacer(1, 10))
+    story.append(
+        Paragraph("📋 Scraped Tournament Fields & Player Statuses", h1_style)
+    )
+    story.append(
+        HRFlowable(
+            width="100%",
+            thickness=0.75,
+            color=colors.HexColor("#2B6CB0"),
+            spaceAfter=8,
+        )
+    )
 
-  doc.build(story)
+    for idx, (url, data) in enumerate(tournament_results):
+      if "error" in data:
+        continue
+
+      t_title = data.get("title", f"Tournament {idx+1}")
+      t_date = data.get("date", "N/A")
+      t_star = data.get("star_level", "N/A")
+      t_age = data.get("age_group", "N/A")
+      win_p = data.get("winner_points", "N/A")
+      fin_p = data.get("finalist_points", "N/A")
+      df_players = data.get("processed_df", pd.DataFrame())
+
+      header_html = (
+          f"<b>{idx+1}. {t_title}</b> ({t_age} | {t_star})<br/><font"
+          f" size=7.5 color='#718096'>Dates: {t_date} | Winner Pts: {win_p} |"
+          f" Finalist Pts: {fin_p}</font>"
+      )
+      story.append(Paragraph(header_html, h2_style))
+      story.append(Spacer(1, 3))
+
+      if not df_players.empty:
+        table_rows = [[
+            Paragraph("<b>Player Name</b>", table_header_style),
+            Paragraph("<b>Rank</b>", table_header_style),
+            Paragraph("<b>Registration Status</b>", table_header_style),
+        ]]
+
+        for _, p_row in df_players.iterrows():
+          p_name = str(p_row.get("Player Name", ""))
+          p_rank = str(p_row.get("Rank", ""))
+          p_status = str(p_row.get("Registration Status", ""))
+
+          p_name_p = Paragraph(p_name, table_cell_style)
+          p_rank_p = Paragraph(p_rank, table_cell_style)
+
+          status_lower = p_status.lower()
+          if "maindraw" in status_lower:
+            p_status_p = Paragraph(f"<b>{p_status}</b>", table_cell_maindraw)
+          elif "reserve" in status_lower:
+            p_status_p = Paragraph(f"<b>{p_status}</b>", table_cell_reserve)
+          else:
+            p_status_p = Paragraph(p_status, table_cell_style)
+
+          table_rows.append([p_name_p, p_rank_p, p_status_p])
+
+        p_table = Table(table_rows, colWidths=[260, 80, 200])
+        p_table.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1A365D")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+                (
+                    "ROWBACKGROUNDS",
+                    (0, 1),
+                    (-1, -1),
+                    [colors.white, colors.HexColor("#F7FAFC")],
+                ),
+            ])
+        )
+        story.append(KeepTogether([p_table]))
+        story.append(Spacer(1, 8))
+
+  doc.build(story, canvasmaker=NumberedCanvas)
   buffer.seek(0)
   return buffer.getvalue()
 
@@ -341,7 +555,6 @@ urls_input = st.text_area(
     height=150,
 )
 
-# Initialize session state for persistent storage
 if "tournament_results" not in st.session_state:
   st.session_state.tournament_results = None
 if "gemini_response_text" not in st.session_state:
@@ -509,7 +722,6 @@ if st.button("Retrieve Data", type="primary"):
     st.session_state.tournament_results = tournament_results
     st.session_state.gemini_response_text = ""
 
-# Render results if they exist in session state
 if st.session_state.tournament_results:
   st.success("Data retrieval complete!")
   st.divider()
@@ -578,7 +790,6 @@ if st.session_state.tournament_results:
             },
         )
 
-  # --- GLOBAL GEMINI ADVISOR INTEGRATION ---
   st.divider()
   st.markdown("### 🤖 Global AI Tournament Prioritization & Strategy Advisor")
   st.markdown(
@@ -676,7 +887,7 @@ if st.session_state.tournament_results:
                     {players_summary}
 
                     OBJECTIVE:
-                    Provide a structured, rigorous comparative analysis and recommendation:
+                    Provide a structured, rigorous comparative analysis and recommendation using markdown formatting (including bullet points and tables where appropriate):
                     - Briefly note compliance under the policy while centering the analysis on strategic trade-offs (draw density, seed positioning, match load, and ranking point gains).
                     - Incorporate historical peer withdrawal trends from `tourn.xlsx` to estimate realistic movement on main draws and reserve lists.
                     - Clearly state which specific tournament(s) Ela should commit to and which ones she should drop.
@@ -689,7 +900,6 @@ if st.session_state.tournament_results:
       except Exception as api_err:
         st.error(f"Failed to generate Gemini response: {str(api_err)}")
 
-  # Display Gemini response if present in session state
   if st.session_state.gemini_response_text:
     st.markdown("### 📋 Gemini Comprehensive Priority Recommendation")
     st.write(st.session_state.gemini_response_text)
