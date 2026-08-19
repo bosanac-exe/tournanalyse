@@ -428,7 +428,8 @@ if st.session_state.tournament_results:
   st.markdown(
       "Analyze **all** retrieved tournaments together to get a comprehensive"
       " recommendation on which event(s) Ela should prioritize, which to"
-      " withdraw from, and how to comply with the OTA Multiple Entries Policy."
+      " withdraw from, and how to optimize her choices based on field dynamics"
+      " and historical withdrawal rates."
   )
 
   if st.button(
@@ -438,7 +439,7 @@ if st.session_state.tournament_results:
   ):
     with st.spinner(
         "Consulting Google Gemini with all tournament fields, rankings, and"
-        " policy guidelines..."
+        " historical patterns..."
     ):
       try:
         policy_text = ""
@@ -462,7 +463,7 @@ if st.session_state.tournament_results:
             s_df = pd.read_excel(tourn_xls, s_name)
             tourn_summary += (
                 f"\nSheet {s_name}:\n"
-                f"{s_df['Post-registration status'].value_counts().to_string()}\n"
+                f"{s_df.to_string()}\n"
             )
         except Exception:
           tourn_summary = "Historical tournament patterns unavailable."
@@ -474,7 +475,7 @@ if st.session_state.tournament_results:
             p_df = pd.read_excel(p_xls, s_name)
             players_summary += (
                 f"\nPlayers sheet {s_name} sample:\n"
-                f"{p_df[['Player', 'Rank', 'Points']].head(5).to_string()}\n"
+                f"{p_df.head(5).to_string()}\n"
             )
         except Exception:
           players_summary = "Player statistics summary unavailable."
@@ -501,21 +502,22 @@ if st.session_state.tournament_results:
           st.error("GEMINI_API_KEY is missing from Streamlit secrets.")
         else:
           genai.configure(api_key=gemini_api_key)
-          model = genai.GenerativeModel("gemini-3.6-flash")
+          model = genai.GenerativeModel("gemini-2.5-flash")
 
           prompt = f"""
                     You are an expert AI sports analyst with advanced skills in statistical analysis and competitive tennis strategy. 
                     Your task is to advise junior tennis player Ela Velic on a global strategy across ALL her registered tournaments. 
-                    Specifically, recommend which tournament(s) she should prioritize and stay registered for, and which one(s) she should withdraw from before the deadline, keeping in mind the OTA Multiple Entries Policy.
+                    Ela is fully aware of the OTA Multiple Entries Policy and is executing this analysis right before the withdrawal deadline to remain strictly compliant. Therefore, do not spend excessive space outlining or explaining the basic rules of the policy; focus purely on strategic optimization.
 
                     CONTEXT & INPUT DATA:
-                    1. OTA Multiple Entries Policy (`multientrypol.txt`):
+                    1. OTA Multiple Entries Policy guidelines (`multientrypol.txt`):
                     {policy_text}
 
-                    2. Ela's Points & Ranking History (`Ela.xlsx` - Junior rankings are best 5 tournaments over 52 weeks):
+                    2. Ela's Points & Ranking History (`Ela.xlsx` - Junior rankings count best 5 tournaments over 52 weeks):
                     {ela_df_context}
 
-                    3. Historical Concurrent Tournament Drop/Participation Patterns (`tourn.xlsx`):
+                    3. Historical Concurrent Tournament Drop & Participation Rates (`tourn.xlsx`):
+                    Take this historical data into account. Recognize that other top players are similarly multi-registering across overlapping events and will be making strategic withdrawal/drop decisions right before the deadline. Factor in how these peer withdrawals will shift main draw and reserve list dynamics.
                     {tourn_summary}
 
                     4. Scraped Field Data & Competitor Statistics for ALL Current Tournaments Entered:
@@ -525,8 +527,8 @@ if st.session_state.tournament_results:
 
                     OBJECTIVE:
                     Provide a structured, rigorous comparative analysis and recommendation:
-                    - Cross-analyze date overlaps and potential policy violations under the OTA Multiple Entries Policy.
-                    - Compare field strength, main draw entry chances (Main Draw vs Reserve status), and potential ranking point gains across all listed tournaments.
+                    - Briefly note compliance under the policy while centering the analysis on strategic trade-offs (draw density, seed positioning, match load, and ranking point gains).
+                    - Incorporate historical peer withdrawal trends from `tourn.xlsx` to estimate realistic movement on main draws and reserve lists.
                     - Clearly state which specific tournament(s) Ela should commit to and which ones she should drop.
                     - Give clear, actionable instructions.
                     """
