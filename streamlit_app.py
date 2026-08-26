@@ -319,20 +319,6 @@ def generate_pdf_report(tournament_results, advisor_text):
       textColor=colors.HexColor("#2D3748"),
   )
 
-  table_cell_maindraw = ParagraphStyle(
-      "TableCellMain",
-      parent=table_cell_style,
-      textColor=colors.HexColor("#155724"),
-      fontName="Helvetica-Bold",
-  )
-
-  table_cell_reserve = ParagraphStyle(
-      "TableCellReserve",
-      parent=table_cell_style,
-      textColor=colors.HexColor("#856404"),
-      fontName="Helvetica-Bold",
-  )
-
   story = []
 
   story.append(
@@ -502,9 +488,9 @@ def generate_pdf_report(tournament_results, advisor_text):
 
           status_lower = p_status.lower()
           if "maindraw" in status_lower:
-            p_status_p = Paragraph(f"<b>{p_status}</b>", table_cell_maindraw)
+            p_status_p = Paragraph(f"<b>{p_status}</b>", table_cell_style)
           elif "reserve" in status_lower:
-            p_status_p = Paragraph(f"<b>{p_status}</b>", table_cell_reserve)
+            p_status_p = Paragraph(f"<b>{p_status}</b>", table_cell_style)
           else:
             p_status_p = Paragraph(p_status, table_cell_style)
 
@@ -602,26 +588,35 @@ if st.button("Retrieve Data", type="primary"):
               df_pts["Age_Str"].str.contains(target_age, case=False, na=False)
           ]
 
-          # --- FIXED STAR LEVEL PARSING ---
+          # --- FLEXIBLE STAR LEVEL PARSING ---
+          star_level_lower = star_level_raw.lower()
           star_match_decimal = re.search(r"(\d+\.\d+)", star_level_raw)
           star_match_int = re.search(r"(\d+)", star_level_raw)
 
-          if "rising" in star_level_raw:
+          if "rising" in star_level_lower:
             filtered_pts = filtered_pts[
                 filtered_pts["Type_Str"].str.contains(
                     "rising", case=False, na=False
                 )
             ]
-          elif "provincial" in star_level_raw:
+          elif "provincial" in star_level_lower:
             filtered_pts = filtered_pts[
                 filtered_pts["Type_Str"].str.contains(
                     "provincial", case=False, na=False
                 )
             ]
+          elif "3.5" in star_level_lower or "3.5 star" in star_level_lower:
+            filtered_pts = filtered_pts[
+                filtered_pts["Type_Str"].str.contains(
+                    "3 star plus", case=False, na=False
+                )
+            ]
           elif star_match_decimal:
             val = star_match_decimal.group(1)
             filtered_pts = filtered_pts[
-                filtered_pts["Type_Str"].str.contains(val, case=False, na=False)
+                filtered_pts["Type_Str"]
+                .str.lower()
+                .str.contains(val, na=False)
             ]
           elif star_match_int:
             val = star_match_int.group(1)
@@ -629,12 +624,7 @@ if st.button("Retrieve Data", type="primary"):
                 filtered_pts["Type_Str"]
                 .str.lower()
                 .apply(
-                    lambda x: (
-                        f" {val} " in f" {x} "
-                        or x.startswith(f"{val} ")
-                        or x.endswith(f" {val}")
-                    )
-                    and "." not in x
+                    lambda x: (val in x) and (f"{val}.5" not in x) and ("plus" not in x)
                 )
             ]
 
