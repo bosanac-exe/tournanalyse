@@ -184,7 +184,6 @@ def style_player_status(row):
 
 
 def generate_pdf_report(tournament_results, advisor_text):
-  """Generates an exceptionally polished, readable PDF report using ReportLab."""
   buffer = io.BytesIO()
 
   class NumberedCanvas(canvas.Canvas):
@@ -603,6 +602,10 @@ if st.button("Retrieve Data", type="primary"):
               df_pts["Age_Str"].str.contains(target_age, case=False, na=False)
           ]
 
+          # --- FIXED STAR LEVEL PARSING ---
+          star_match_decimal = re.search(r"(\d+\.\d+)", star_level_raw)
+          star_match_int = re.search(r"(\d+)", star_level_raw)
+
           if "rising" in star_level_raw:
             filtered_pts = filtered_pts[
                 filtered_pts["Type_Str"].str.contains(
@@ -615,14 +618,25 @@ if st.button("Retrieve Data", type="primary"):
                     "provincial", case=False, na=False
                 )
             ]
-          else:
-            star_match = re.search(r"(\d+)", star_level_raw)
-            if star_match:
-              filtered_pts = filtered_pts[
-                  filtered_pts["Type_Str"].str.contains(
-                      star_match.group(1), case=False, na=False
-                  )
-              ]
+          elif star_match_decimal:
+            val = star_match_decimal.group(1)
+            filtered_pts = filtered_pts[
+                filtered_pts["Type_Str"].str.contains(val, case=False, na=False)
+            ]
+          elif star_match_int:
+            val = star_match_int.group(1)
+            filtered_pts = filtered_pts[
+                filtered_pts["Type_Str"]
+                .str.lower()
+                .apply(
+                    lambda x: (
+                        f" {val} " in f" {x} "
+                        or x.startswith(f"{val} ")
+                        or x.endswith(f" {val}")
+                    )
+                    and "." not in x
+                )
+            ]
 
           def match_draw_size(draw_text, count):
             dt_lower = draw_text.lower()
