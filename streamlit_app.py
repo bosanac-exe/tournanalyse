@@ -41,7 +41,6 @@ def load_u16_rankings():
         valid_sheets.append((int(match.group(2)), int(match.group(1)), sheet))
 
     if not valid_sheets:
-      # Fallback to any sheet if naming pattern differs
       valid_sheets = [(0, 0, excel_file.sheet_names[0])]
     else:
       valid_sheets.sort(key=lambda x: (x[0], x[1]))
@@ -208,7 +207,13 @@ def scrape_tournament_data(url):
 
 def style_player_status(row):
   status = str(row["Registration Status"]).lower()
-  if "maindraw" in status:
+  player_name = str(row["Player Name"]).strip()
+
+  if "ela velic" in player_name.lower():
+    return ["background-color: #bee3f8; color: #2b6cb0; font-weight: bold"] * len(
+        row
+    )
+  elif "maindraw" in status:
     return ["background-color: #d4edda; color: #155724"] * len(row)
   elif "reserve" in status:
     return ["background-color: #fff3cd; color: #856404"] * len(row)
@@ -515,6 +520,9 @@ def generate_pdf_report(tournament_results, advisor_text):
           p_rank = str(p_row.get("Rank", ""))
           p_status = str(p_row.get("Registration Status", ""))
 
+          if "ela velic" in p_name.lower():
+            p_name = f"<b>{p_name}</b>"
+
           p_name_p = Paragraph(p_name, table_cell_style)
           p_rank_p = Paragraph(p_rank, table_cell_style)
           p_status_p = Paragraph(p_status, table_cell_style)
@@ -620,7 +628,6 @@ if st.button("Retrieve Data", type="primary"):
               df_pts["Age_Str"].str.contains(target_age, case=False, na=False)
           ]
 
-          # --- FLEXIBLE STAR LEVEL PARSING ---
           star_level_lower = star_level_raw.lower()
           star_match_decimal = re.search(r"(\d+\.\d+)", star_level_raw)
           star_match_int = re.search(r"(\d+)", star_level_raw)
@@ -743,12 +750,12 @@ if st.button("Retrieve Data", type="primary"):
         df["_sort_rank"] = pd.to_numeric(df["Rank"], errors="coerce").fillna(
             float("inf")
         )
+
         df_maindraw = df[df["_is_maindraw"]].sort_values(
             by="_sort_rank", ascending=True
         )
-        df_others = df[~df["_is_maindraw"]].sort_values(
-            by="Registration Status", ascending=True
-        )
+        df_others = df[~df["_is_maindraw"]]
+
         df = pd.concat([df_maindraw, df_others]).drop(
             columns=["_is_maindraw", "_sort_rank"]
         )
