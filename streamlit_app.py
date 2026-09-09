@@ -607,15 +607,18 @@ if st.button("Retrieve Data", type="primary"):
 
       if points_df is not None and not points_df.empty and players:
         total_players = len(players)
-        age_group_raw = result.get("age_group", "").upper()
         star_level_raw = result.get("star_level", "").lower()
 
+        # Robust age extraction (handles "GS 16", "U16", etc.)
+        age_group_raw = result.get("age_group", "").upper()
         if "16" in age_group_raw:
           target_age = "16"
         elif "14" in age_group_raw:
           target_age = "14"
-        else:
+        elif "12" in age_group_raw:
           target_age = "12"
+        else:
+          target_age = "16"
 
         try:
           df_pts = points_df.copy()
@@ -663,9 +666,11 @@ if st.button("Retrieve Data", type="primary"):
                 filtered_pts["Type_Str"]
                 .str.lower()
                 .apply(
-                    lambda x: (val in x)
-                    and (f"{val}.5" not in x)
-                    and ("plus" not in x)
+                    lambda x: bool(
+                        re.search(rf"\b{val}(\.0)?\b", x)
+                        and f"{val}.5" not in x
+                        and "plus" not in x
+                    )
                 )
             ]
 
@@ -689,12 +694,12 @@ if st.button("Retrieve Data", type="primary"):
 
           win_row = filtered_pts[
               filtered_pts["Finish_Str"].str.contains(
-                  "winner", case=False, na=False
+                  r"\bwinner\b", case=False, na=False, regex=True
               )
           ]
           fin_row = filtered_pts[
               filtered_pts["Finish_Str"].str.contains(
-                  "finalist", case=False, na=False
+                  r"\b(finalist|runner-up)\b", case=False, na=False, regex=True
               )
           ]
 
