@@ -21,6 +21,38 @@ import streamlit as st
 
 
 @st.cache_data(ttl=3600)
+def load_u16_rankings():
+  """Fetches the U16 master ranking excel file from GitHub root."""
+  excel_url = (
+      "https://raw.githubusercontent.com/bosanac-exe/tournanalyse/main/u16.xlsx"
+  )
+  try:
+    response = requests.get(excel_url, timeout=15)
+    response.raise_for_status()
+    excel_file = pd.ExcelFile(io.BytesIO(response.content))
+    valid_sheets = []
+    pattern = re.compile(r"^week\s*(\d+)-(\d{4})$", re.IGNORECASE)
+
+    for sheet in excel_file.sheet_names:
+      if sheet.strip().lower() == "trends":
+        continue
+      match = pattern.match(sheet.strip())
+      if match:
+        valid_sheets.append((int(match.group(2)), int(match.group(1)), sheet))
+
+    if not valid_sheets:
+      # Fallback to any sheet if naming pattern differs
+      valid_sheets = [(0, 0, excel_file.sheet_names[0])]
+    else:
+      valid_sheets.sort(key=lambda x: (x[0], x[1]))
+
+    latest_sheet_name = valid_sheets[-1][2]
+    return pd.read_excel(excel_file, sheet_name=latest_sheet_name), latest_sheet_name
+  except Exception as e:
+    return None, str(e)
+
+
+@st.cache_data(ttl=3600)
 def load_u14_rankings():
   """Fetches the public U14 master ranking excel file from GitHub."""
   excel_url = (
@@ -485,14 +517,7 @@ def generate_pdf_report(tournament_results, advisor_text):
 
           p_name_p = Paragraph(p_name, table_cell_style)
           p_rank_p = Paragraph(p_rank, table_cell_style)
-
-          status_lower = p_status.lower()
-          if "maindraw" in status_lower:
-            p_status_p = Paragraph(f"<b>{p_status}</b>", table_cell_style)
-          elif "reserve" in status_lower:
-            p_status_p = Paragraph(f"<b>{p_status}</b>", table_cell_style)
-          else:
-            p_status_p = Paragraph(p_status, table_cell_style)
+          p_status_p = Paragraph(p_status, table_cell_style)
 
           table_rows.append([p_name_p, p_rank_p, p_status_p])
 
@@ -553,6 +578,7 @@ if st.button("Retrieve Data", type="primary"):
   elif len(urls) > 10:
     st.error("Please limit your input to a maximum of 10 URLs.")
   else:
+    u16_df, u16_sheet = load_u16_rankings()
     u14_df, u14_sheet = load_u14_rankings()
     u12_df, u12_sheet = load_u12_rankings()
     points_df, points_error = load_points_table()
@@ -575,7 +601,13 @@ if st.button("Retrieve Data", type="primary"):
         total_players = len(players)
         age_group_raw = result.get("age_group", "").upper()
         star_level_raw = result.get("star_level", "").lower()
-        target_age = "12" if "12" in age_group_raw else "14"
+
+        if "16" in age_group_raw:
+          target_age = "16"
+        elif "14" in age_group_raw:
+          target_age = "14"
+        else:
+          target_age = "12"
 
         try:
           df_pts = points_df.copy()
@@ -624,7 +656,9 @@ if st.button("Retrieve Data", type="primary"):
                 filtered_pts["Type_Str"]
                 .str.lower()
                 .apply(
-                    lambda x: (val in x) and (f"{val}.5" not in x) and ("plus" not in x)
+                    lambda x: (val in x)
+                    and (f"{val}.5" not in x)
+                    and ("plus" not in x)
                 )
             ]
 
@@ -667,7 +701,13 @@ if st.button("Retrieve Data", type="primary"):
       df = pd.DataFrame(players)
       if not df.empty:
         age_group = result.get("age_group", "").upper()
-        active_rankings = u12_df if "12" in age_group else u14_df
+        if "16" in age_group:
+          active_rankings = u16_df
+        elif "12" in age_group:
+          active_rankings = u12_df
+        else:
+          active_rankings = u14_df
+
         if (
             active_rankings is not None
             and "Player" in active_rankings.columns
@@ -832,7 +872,10 @@ if st.session_state.tournament_results:
           tourn_xls = pd.ExcelFile("tourn.xlsx")
           for s_name in tourn_xls.sheet_names:
             s_df = pd.read_excel(tourn_xls, s_name)
-            tourn_summary += f"\nSheet {s_name}:\n{s_df.to_string()}\n"
+            tourn_summary += (
+                f"\nTournament Period Sheet [{s_name} (Format: [a,b]-Unn-N)]:\n"
+                f"{s_df.to_string()}\n"
+            )
         except Exception:
           tourn_summary = "Historical tournament patterns unavailable."
 
@@ -872,28 +915,28 @@ if st.session_state.tournament_results:
           prompt = f"""
                     You are an expert AI sports analyst with advanced skills in statistical analysis and competitive tennis strategy. 
                     Your task is to advise junior tennis player Ela Velic on a global strategy across ALL her registered tournaments. 
-                    Ela is fully aware of the OTA Multiple Entries Policy and is executing this analysis right before the withdrawal deadline to remain strictly compliant. Therefore, do not spend excessive space outlining or explaining the basic rules of the policy; focus purely on strategic optimization.
+                    Ela is expanding her competition scope into U16 events as well as U12/U14 segments. Ela is fully aware of the OTA Multiple Entries Policy and is executing this analysis right before the withdrawal deadline to remain strictly compliant. Therefore, do not spend excessive space outlining or explaining the basic rules of the policy; focus purely on strategic optimization.
 
                     CONTEXT & INPUT DATA:
                     1. OTA Multiple Entries Policy guidelines (`multientrypol.txt`):
                     {policy_text}
 
-                    2. Ela's Points & Ranking History (`Ela.xlsx` - Junior rankings count best 5 tournaments over 52 weeks):
+                    2. Ela's Points & Ranking History (`Ela.xlsx` - Junior rankings count best tournaments over 52 weeks):
                     {ela_df_context}
 
-                    3. Historical Concurrent Tournament Drop & Participation Rates (`tourn.xlsx`):
-                    Take this historical data into account. Recognize that other top players are similarly multi-registering across overlapping events and will be making strategic withdrawal/drop decisions right before the deadline. Factor in how these peer withdrawals will shift main draw and reserve list dynamics.
+                    3. Historical Concurrent Tournament Drop & Participation Rates (`tourn.xlsx` with worksheet naming convention `[a,b]-Unn-N` reflecting concurrent tournament segments, age category Unn, and star ranking N):
+                    Take this historical data into account. Recognize that other top players are similarly multi-registering across overlapping events in segments [a,b] and will be making strategic withdrawal/drop decisions right before the deadline. Factor in how these peer withdrawals will shift main draw and reserve list dynamics across segments.
                     {tourn_summary}
 
-                    4. Scraped Field Data & Competitor Statistics for ALL Current Tournaments Entered:
+                    4. Scraped Field Data & Competitor Statistics for ALL Current Tournaments Entered (including U16, U14, U12):
                     {all_tournaments_context}
                     
                     {players_summary}
 
                     OBJECTIVE:
                     Provide a structured, rigorous comparative analysis and recommendation using markdown formatting (including bullet points and tables where appropriate):
-                    - Briefly note compliance under the policy while centering the analysis on strategic trade-offs (draw density, seed positioning, match load, and ranking point gains).
-                    - Incorporate historical peer withdrawal trends from `tourn.xlsx` to estimate realistic movement on main draws and reserve lists.
+                    - Briefly note compliance under the policy while centering the analysis on strategic trade-offs (draw density, seed positioning across U12/U14/U16, match load, and ranking point gains).
+                    - Incorporate historical peer withdrawal trends from `tourn.xlsx` segments to estimate realistic movement on main draws and reserve lists.
                     - Clearly state which specific tournament(s) Ela should commit to and which ones she should drop.
                     - Give clear, actionable instructions.
                     """
