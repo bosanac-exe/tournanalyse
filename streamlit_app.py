@@ -608,71 +608,30 @@ if st.button("Retrieve Data", type="primary"):
       if points_df is not None and not points_df.empty and players:
         total_players = len(players)
         star_level_raw = result.get("star_level", "").lower()
-
-        # Robust age extraction (handles "GS 16", "U16", etc.)
         age_group_raw = result.get("age_group", "").upper()
-        if "16" in age_group_raw:
-          target_age = "16"
-        elif "14" in age_group_raw:
-          target_age = "14"
-        elif "12" in age_group_raw:
-          target_age = "12"
-        else:
-          target_age = "16"
+
+        age_match = re.search(r"(16|14|12)", age_group_raw)
+        target_age = age_match.group(1) if age_match else "16"
+
+        star_num_match = re.search(r"(\d+)", star_level_raw)
+        star_val = star_num_match.group(1) if star_num_match else "2"
 
         try:
           df_pts = points_df.copy()
-          df_pts["Age_Str"] = df_pts.iloc[:, 0].astype(str)
+          df_pts["combined_row_text"] = (
+              df_pts.astype(str).agg(" ".join, axis=1).str.lower()
+          )
           df_pts["Draw_Str"] = df_pts.iloc[:, 1].astype(str)
-          df_pts["Type_Str"] = df_pts.iloc[:, 2].astype(str)
           df_pts["Finish_Str"] = df_pts.iloc[:, 3].astype(str)
 
           filtered_pts = df_pts[
-              df_pts["Age_Str"].str.contains(target_age, case=False, na=False)
+              df_pts["combined_row_text"].str.contains(
+                  f"u?{target_age}", na=False
+              )
+              & df_pts["combined_row_text"].str.contains(
+                  rf"\b{star_val}\b", na=False
+              )
           ]
-
-          star_level_lower = star_level_raw.lower()
-          star_match_decimal = re.search(r"(\d+\.\d+)", star_level_raw)
-          star_match_int = re.search(r"(\d+)", star_level_raw)
-
-          if "rising" in star_level_lower:
-            filtered_pts = filtered_pts[
-                filtered_pts["Type_Str"].str.contains(
-                    "rising", case=False, na=False
-                )
-            ]
-          elif "provincial" in star_level_lower:
-            filtered_pts = filtered_pts[
-                filtered_pts["Type_Str"].str.contains(
-                    "provincial", case=False, na=False
-                )
-            ]
-          elif "3.5" in star_level_lower or "3.5 star" in star_level_lower:
-            filtered_pts = filtered_pts[
-                filtered_pts["Type_Str"].str.contains(
-                    "3 star plus", case=False, na=False
-                )
-            ]
-          elif star_match_decimal:
-            val = star_match_decimal.group(1)
-            filtered_pts = filtered_pts[
-                filtered_pts["Type_Str"]
-                .str.lower()
-                .str.contains(val, na=False)
-            ]
-          elif star_match_int:
-            val = star_match_int.group(1)
-            filtered_pts = filtered_pts[
-                filtered_pts["Type_Str"]
-                .str.lower()
-                .apply(
-                    lambda x: bool(
-                        re.search(rf"\b{val}(\.0)?\b", x)
-                        and f"{val}.5" not in x
-                        and "plus" not in x
-                    )
-                )
-            ]
 
           def match_draw_size(draw_text, count):
             dt_lower = draw_text.lower()
@@ -684,7 +643,7 @@ if st.button("Retrieve Data", type="primary"):
               return count == numbers[0]
             elif len(numbers) >= 2:
               return numbers[0] <= count <= numbers[1]
-            return False
+            return True
 
           filtered_pts = filtered_pts[
               filtered_pts["Draw_Str"].apply(
