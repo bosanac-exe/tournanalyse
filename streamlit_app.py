@@ -892,7 +892,7 @@ if st.session_state.tournament_results:
                     1. OTA Multiple Entries Policy guidelines (`multientrypol.txt`):
                     {policy_text}
 
-                    2. Ela's Points & Ranking History (`Ela.xlsx` - Junior rankings count best tournaments over 52 weeks):
+                    2. Ela's Points & Ranking History (`Ela.xlsx` - Points are accumulated from a player's results over the previous 52 weeks. Results from each new week will be added and the results from the corresponding week of the previous year will be dropped. Junior rankings are based on results from the player's best five tournaments.):
                     {ela_df_context}
 
                     3. Historical Concurrent Tournament Drop & Participation Rates (`tourn.xlsx` with worksheet naming convention `[a,b]-Unn-N` reflecting concurrent tournament segments, age category Unn, and star ranking N):
