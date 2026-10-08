@@ -610,28 +610,62 @@ if st.button("Retrieve Data", type="primary"):
         star_level_raw = result.get("star_level", "").lower()
         age_group_raw = result.get("age_group", "").upper()
 
-        age_match = re.search(r"(16|14|12)", age_group_raw)
+        # Prioritize age group extracted from the page's age tag header (e.g. "GS 12" -> "12")
+        age_match = re.search(r"\b(16|14|12)\b", age_group_raw)
         target_age = age_match.group(1) if age_match else "16"
-
-        star_num_match = re.search(r"(\d+)", star_level_raw)
-        star_val = star_num_match.group(1) if star_num_match else "2"
 
         try:
           df_pts = points_df.copy()
-          df_pts["combined_row_text"] = (
-              df_pts.astype(str).agg(" ".join, axis=1).str.lower()
-          )
+          df_pts["Age_Str"] = df_pts.iloc[:, 0].astype(str)
           df_pts["Draw_Str"] = df_pts.iloc[:, 1].astype(str)
+          df_pts["Type_Str"] = df_pts.iloc[:, 2].astype(str)
           df_pts["Finish_Str"] = df_pts.iloc[:, 3].astype(str)
 
+          # Filter strictly by the target age column first
           filtered_pts = df_pts[
-              df_pts["combined_row_text"].str.contains(
-                  f"u?{target_age}", na=False
-              )
-              & df_pts["combined_row_text"].str.contains(
-                  rf"\b{star_val}\b", na=False
-              )
+              df_pts["Age_Str"].str.contains(target_age, case=False, na=False)
           ]
+
+          # Handle Star Level matching robustly
+          if (
+              "3.5" in star_level_raw
+              or "3.5 star" in star_level_raw
+              or "plus" in star_level_raw
+          ):
+            filtered_pts = filtered_pts[
+                filtered_pts["Type_Str"].str.contains(
+                    "3 star plus", case=False, na=False
+                )
+                | filtered_pts["Type_Str"].str.contains(
+                    "provincial", case=False, na=False
+                )
+            ]
+          elif "rising" in star_level_raw:
+            filtered_pts = filtered_pts[
+                filtered_pts["Type_Str"].str.contains(
+                    "rising", case=False, na=False
+                )
+            ]
+          elif "provincial" in star_level_raw:
+            filtered_pts = filtered_pts[
+                filtered_pts["Type_Str"].str.contains(
+                    "provincial", case=False, na=False
+                )
+            ]
+          else:
+            star_match_int = re.search(r"(\d+)", star_level_raw)
+            if star_match_int:
+              val = star_match_int.group(1)
+              filtered_pts = filtered_pts[
+                  filtered_pts["Type_Str"]
+                  .str.lower()
+                  .apply(
+                      lambda x: bool(
+                          re.search(rf"\b{val}(\.0)?\b", x)
+                          and "plus" not in x
+                      )
+                  )
+              ]
 
           def match_draw_size(draw_text, count):
             dt_lower = draw_text.lower()
@@ -892,7 +926,7 @@ if st.session_state.tournament_results:
                     1. OTA Multiple Entries Policy guidelines (`multientrypol.txt`):
                     {policy_text}
 
-                    2. Ela's Points & Ranking History (`Ela.xlsx` - Points are accumulated from a player's results over the previous 52 weeks. Results from each new week will be added and the results from the corresponding week of the previous year will be dropped. Junior rankings are based on results from the player's best five tournaments.):
+                    2. Ela's Points & Ranking History (`Ela.xlsx` - Junior rankings count best tournaments over 52 weeks):
                     {ela_df_context}
 
                     3. Historical Concurrent Tournament Drop & Participation Rates (`tourn.xlsx` with worksheet naming convention `[a,b]-Unn-N` reflecting concurrent tournament segments, age category Unn, and star ranking N):
